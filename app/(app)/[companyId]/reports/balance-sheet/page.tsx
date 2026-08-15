@@ -1,0 +1,117 @@
+"use client";
+
+import { use, useState } from "react";
+import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { CsvExportButton } from "@/components/csv/CsvExportButton";
+import { useBalanceSheetQuery } from "@/hooks/useReportsQueries";
+import { useSupabase } from "@/hooks/useSupabase";
+import { getBalanceSheet, type BalanceSheetRow } from "@/lib/supabase/queries/reports";
+import { formatCurrency } from "@/lib/utils/currency";
+
+function isoToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]; total: number }) {
+  const byGroup = new Map<string, BalanceSheetRow[]>();
+  for (const row of rows) {
+    const key = row.groupName;
+    const existing = byGroup.get(key);
+    if (existing) existing.push(row);
+    else byGroup.set(key, [row]);
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border">
+      <div className="border-b bg-muted/40 px-3 py-2 text-sm font-medium">{title}</div>
+      <table className="w-full text-sm">
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td className="p-3 text-center text-muted-foreground">Nothing to show.</td>
+            </tr>
+          )}
+          {[...byGroup.entries()].map(([groupName, groupRows]) => (
+            <>
+              {groupRows.length > 1 && (
+                <tr key={`${groupName}-header`} className="border-t bg-muted/10">
+                  <td className="p-2 pl-3 text-xs font-medium text-muted-foreground" colSpan={2}>
+                    {groupName}
+                  </td>
+                </tr>
+              )}
+              {groupRows.map((row) => (
+                <tr key={row.ledgerId ?? row.ledgerName} className="border-t">
+                  <td className={cn("p-2.5 text-muted-foreground", groupRows.length > 1 ? "pl-6" : "pl-3")}>
+                    {groupRows.length === 1 ? row.groupName : row.ledgerName}
+                  </td>
+                  <td className="p-2.5 pr-3 text-right tabular-nums">{formatCurrency(row.amount)}</td>
+                </tr>
+              ))}
+            </>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 font-semibold">
+            <td className="p-2.5 pl-3">Total</td>
+            <td className="p-2.5 pr-3 text-right tabular-nums">{formatCurrency(total)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/reports/balance-sheet">) {
+  const { companyId } = use(params);
+  const supabase = useSupabase();
+  const [asOfDate, setAsOfDate] = useState(isoToday());
+  const { data, isLoading } = useBalanceSheetQuery(companyId, asOfDate);
+
+  const liabilities = (data ?? []).filter((r) => r.side === "liability");
+  const assets = (data ?? []).filter((r) => r.side === "asset");
+  const totalLiabilities = liabilities.reduce((s, r) => s + r.amount, 0);
+  const totalAssets = assets.reduce((s, r) => s + r.amount, 0);
+  const tallies = !isLoading && Math.round(totalLiabilities * 100) === Math.round(totalAssets * 100);
+
+  return (
+    <div className="mx-auto max-w-5xl space-y-4 p-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold tracking-tight">Balance Sheet</h1>
+        <CsvExportButton
+          filename="balance-sheet.csv"
+          columns={[
+            { key: "side", header: "Side" },
+            { key: "groupName", header: "Group" },
+            { key: "ledgerName", header: "Ledger" },
+            { key: "amount", header: "Amount" },
+          ]}
+          fetchRows={() => getBalanceSheet(supabase, companyId, asOfDate)}
+        />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">As of</span>
+        <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-96 w-full" />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-4">
+            <Column title="Liabilities" rows={liabilities} total={totalLiabilities} />
+            <Column title="Assets" rows={assets} total={totalAssets} />
+          </div>
+          <p className={cn("text-center text-sm font-medium", tallies ? "text-success" : "text-destructive")}>
+            {tallies
+              ? "Balance sheet tallies."
+              : `Does not tally — off by ${formatCurrency(Math.abs(totalLiabilities - totalAssets))}. This should not be possible; please report it.`}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}

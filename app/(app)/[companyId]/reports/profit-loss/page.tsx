@@ -1,0 +1,107 @@
+"use client";
+
+import { use, useState } from "react";
+import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ReportDateRangeFilter, defaultDateRange } from "@/components/reports/ReportDateRangeFilter";
+import { CsvExportButton } from "@/components/csv/CsvExportButton";
+import { useProfitAndLossQuery } from "@/hooks/useReportsQueries";
+import { useSupabase } from "@/hooks/useSupabase";
+import { getProfitAndLoss, type ProfitAndLossRow } from "@/lib/supabase/queries/reports";
+import { formatCurrency } from "@/lib/utils/currency";
+
+function Section({ title, rows, total, totalLabel }: { title: string; rows: ProfitAndLossRow[]; total: number; totalLabel: string }) {
+  return (
+    <div className="overflow-hidden rounded-xl border">
+      <div className="border-b bg-muted/40 px-3 py-2 text-sm font-medium">{title}</div>
+      <table className="w-full text-sm">
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td className="p-3 text-center text-muted-foreground">No activity in this period.</td>
+            </tr>
+          )}
+          {rows.map((row) => (
+            <tr key={row.ledgerId} className="border-t">
+              <td className="p-2.5 pl-3 text-muted-foreground">{row.ledgerName}</td>
+              <td className="p-2.5 pr-3 text-right tabular-nums">{formatCurrency(row.amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className={cn("border-t-2 font-semibold", total >= 0 ? "text-success" : "text-destructive")}>
+            <td className="p-2.5 pl-3">{totalLabel}</td>
+            <td className="p-2.5 pr-3 text-right tabular-nums">{formatCurrency(Math.abs(total))}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/reports/profit-loss">) {
+  const { companyId } = use(params);
+  const supabase = useSupabase();
+  const [range, setRange] = useState(defaultDateRange());
+  const { data, isLoading } = useProfitAndLossQuery(companyId, range.from, range.to);
+
+  const rows = data ?? [];
+  const directIncome = rows.filter((r) => r.nature === "direct_income");
+  const directExpense = rows.filter((r) => r.nature === "direct_expense");
+  const indirectIncome = rows.filter((r) => r.nature === "indirect_income");
+  const indirectExpense = rows.filter((r) => r.nature === "indirect_expense");
+
+  const sum = (rs: ProfitAndLossRow[]) => rs.reduce((s, r) => s + r.amount, 0);
+  const grossProfit = sum(directIncome) - sum(directExpense);
+  const netProfit = grossProfit + sum(indirectIncome) - sum(indirectExpense);
+
+  return (
+    <div className="mx-auto max-w-4xl space-y-4 p-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-semibold tracking-tight">Trading & Profit and Loss Account</h1>
+        <CsvExportButton
+          filename="profit-and-loss.csv"
+          columns={[
+            { key: "statement", header: "Statement" },
+            { key: "nature", header: "Nature" },
+            { key: "ledgerName", header: "Ledger" },
+            { key: "amount", header: "Amount" },
+          ]}
+          fetchRows={() => getProfitAndLoss(supabase, companyId, range.from, range.to)}
+        />
+      </div>
+
+      <ReportDateRangeFilter value={range} onChange={setRange} />
+
+      {isLoading ? (
+        <Skeleton className="h-96 w-full" />
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Section title="Direct Income (Sales)" rows={directIncome} total={sum(directIncome)} totalLabel="Total" />
+            <Section title="Direct Expenses (incl. Purchases)" rows={directExpense} total={sum(directExpense)} totalLabel="Total" />
+          </div>
+
+          <div className={cn("rounded-xl border p-4 text-center", grossProfit >= 0 ? "bg-success/5" : "bg-destructive/5")}>
+            <p className="text-xs text-muted-foreground">{grossProfit >= 0 ? "Gross Profit" : "Gross Loss"}</p>
+            <p className={cn("text-xl font-semibold tabular-nums", grossProfit >= 0 ? "text-success" : "text-destructive")}>
+              {formatCurrency(Math.abs(grossProfit))}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Section title="Indirect Income" rows={indirectIncome} total={sum(indirectIncome)} totalLabel="Total" />
+            <Section title="Indirect Expenses" rows={indirectExpense} total={sum(indirectExpense)} totalLabel="Total" />
+          </div>
+
+          <div className={cn("rounded-xl border p-4 text-center", netProfit >= 0 ? "bg-success/5" : "bg-destructive/5")}>
+            <p className="text-xs text-muted-foreground">{netProfit >= 0 ? "Net Profit" : "Net Loss"}</p>
+            <p className={cn("text-xl font-semibold tabular-nums", netProfit >= 0 ? "text-success" : "text-destructive")}>
+              {formatCurrency(Math.abs(netProfit))}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
