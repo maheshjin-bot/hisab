@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database.types";
-import type { CsvImportConfig } from "@/lib/csv/types";
+import type { CsvImportConfig, FileLevelIssue } from "@/lib/csv/types";
 import { bulkInsertLedgers, getAllLedgerGroups } from "@/lib/supabase/queries/ledgers";
+import { sumPaise, toPaise } from "@/lib/utils/currency";
 
 export interface LedgerCsvRow {
   name: string;
@@ -112,6 +113,32 @@ export function buildLedgerCsvImportConfig(
           address: row.address,
           notes: row.notes,
         })),
+    // Opening balances aren't voucher_entries, so nothing at the database
+    // level enforces that they collectively net to zero the way the
+    // double-entry trigger does for vouchers — confirmed directly by an
+    // end-to-end smoke test that fed in two ledgers with debit opening
+    // balances and no offsetting entry, and watched Trial Balance/Balance
+    // Sheet correctly report the resulting (correct, given the bad input)
+    // imbalance. This is exactly the check the spec calls for on bulk
+    // opening-balance import. Skipped entirely when every row's opening
+    // balance is 0 (plain ledger-master import, nothing to balance yet).
+    validateFile: (validRows): FileLevelIssue[] => {
+      const debitPaise = sumPaise(
+        validRows.filter((r) => r.data.openingBalanceType === "debit").map((r) => toPaise(r.data.openingBalance))
+      );
+      const creditPaise = sumPaise(
+        validRows.filter((r) => r.data.openingBalanceType === "credit").map((r) => toPaise(r.data.openingBalance))
+      );
+      if (debitPaise === 0 && creditPaise === 0) return [];
+      if (debitPaise === creditPaise) return [];
+      return [
+        {
+          rowNumbers: validRows.filter((r) => r.data.openingBalance > 0).map((r) => r.rowNumber),
+          severity: "error",
+          message: `Opening balances don't tally: total Dr ${(debitPaise / 100).toFixed(2)} ≠ total Cr ${(creditPaise / 100).toFixed(2)}. Include a balancing entry (e.g. Capital Account) in this same file.`,
+        },
+      ];
+    },
     onCommit: async (rows) => {
       const result = await bulkInsertLedgers(supabase, companyId, rows.map((r) => ({
         name: r.name,
