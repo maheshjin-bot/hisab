@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   BookText,
+  FolderTree,
   Receipt,
   CalendarDays,
   BookOpenText,
@@ -27,6 +28,7 @@ function navItems(companyId: string): NavItem[] {
   return [
     { href: `/${companyId}/dashboard`, label: "Dashboard", icon: LayoutDashboard },
     { href: `/${companyId}/ledgers`, label: "Parties & Ledgers", icon: BookText },
+    { href: `/${companyId}/groups`, label: "Account Groups", icon: FolderTree },
     { href: `/${companyId}/vouchers`, label: "Vouchers", icon: Receipt },
   ];
 }

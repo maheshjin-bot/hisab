@@ -1,12 +1,20 @@
 import Link from "next/link";
+import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { createAppColumnHelper } from "@/components/data-table/table-features";
 import type { VoucherListItem } from "@/lib/supabase/queries/vouchers";
 import { formatCurrency } from "@/lib/utils/currency";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const columnHelper = createAppColumnHelper<VoucherListItem>();
 
-export function buildVoucherColumns(companyId: string) {
+export function buildVoucherColumns(companyId: string, onDelete: (voucher: VoucherListItem) => void) {
   return columnHelper.columns([
     columnHelper.accessor("voucherDate", {
       header: "Date",
@@ -39,6 +47,41 @@ export function buildVoucherColumns(companyId: string) {
     columnHelper.accessor("totalAmount", {
       header: "Amount",
       cell: (info) => <span className="tabular-nums">{formatCurrency(info.getValue())}</span>,
+    }),
+    columnHelper.display({
+      id: "actions",
+      header: "",
+      cell: (info) => {
+        const voucher = info.row.original;
+        return (
+          <div className="flex justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted-foreground"
+                    aria-label={`Actions for voucher ${voucher.voucherNumber}`}
+                  />
+                }
+              >
+                <MoreHorizontal className="size-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem render={<Link href={`/${companyId}/vouchers/${voucher.id}/edit`} />}>
+                  <Pencil className="size-3.5" />
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" onClick={() => onDelete(voucher)}>
+                  <Trash2 className="size-3.5" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        );
+      },
     }),
   ]);
 }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   BookText,
+  FolderTree,
   Receipt,
   Settings,
   Building2,
@@ -116,6 +117,10 @@ export function CommandPalette({ companyId }: { companyId: string }) {
           <CommandItem value="parties ledgers master" onSelect={() => go(`/${companyId}/ledgers`)}>
             <BookText />
             Parties & Ledgers
+          </CommandItem>
+          <CommandItem value="account groups chart of accounts" onSelect={() => go(`/${companyId}/groups`)}>
+            <FolderTree />
+            Account Groups
           </CommandItem>
           <CommandItem value="vouchers register list" onSelect={() => go(`/${companyId}/vouchers`)}>
             <Receipt />

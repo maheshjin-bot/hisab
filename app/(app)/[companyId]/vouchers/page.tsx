@@ -7,14 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, DEFAULT_PAGE_SIZE } from "@/components/data-table/DataTable";
 import { buildVoucherColumns } from "@/components/vouchers/voucher-columns";
-import { useVouchersQuery } from "@/hooks/useVouchersQuery";
+import { useDeleteVoucherMutation, useVouchersQuery } from "@/hooks/useVouchersQuery";
 import { useSupabase } from "@/hooks/useSupabase";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
 import { CsvImportModal } from "@/components/csv/CsvImportModal";
 import { buildVoucherCsvImportConfig } from "@/lib/voucher/voucher-csv-config";
-import { listVouchers, type VoucherType } from "@/lib/supabase/queries/vouchers";
+import { listVouchers, type VoucherListItem, type VoucherType } from "@/lib/supabase/queries/vouchers";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { toUserMessage } from "@/lib/errors";
 import { VOUCHER_TYPE_CONFIG, VOUCHER_TYPE_ORDER } from "@/lib/voucher/voucher-type-config";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 export default function VouchersPage({ params }: PageProps<"/[companyId]/vouchers">) {
   const { companyId } = use(params);
@@ -25,6 +28,9 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: DEFAULT_PAGE_SIZE });
   const [sorting, setSorting] = useState<{ id: string; desc: boolean }[]>([]);
   const [importOpen, setImportOpen] = useState(false);
+  const [deleting, setDeleting] = useState<VoucherListItem | null>(null);
+
+  const deleteVoucher = useDeleteVoucherMutation(companyId);
 
   const { data, isLoading, isFetching } = useVouchersQuery(companyId, {
     voucherType: voucherType === "all" ? undefined : (voucherType as VoucherType),
@@ -32,7 +38,7 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
     pageSize: pagination.pageSize,
   });
 
-  const columns = useMemo(() => buildVoucherColumns(companyId), [companyId]);
+  const columns = useMemo(() => buildVoucherColumns(companyId, setDeleting), [companyId]);
   const importConfig = useMemo(() => buildVoucherCsvImportConfig(supabase, companyId), [supabase, companyId]);
 
   return (
@@ -95,6 +101,35 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
             </SelectContent>
           </Select>
         }
+      />
+
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title="Delete this voucher?"
+        description={
+          <>
+            <b>{deleting?.voucherNumber}</b> will stop appearing in the register and in every
+            report. The record is kept, and its number is not reissued.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          if (!deleting) return;
+          try {
+            await deleteVoucher.mutateAsync(deleting.id);
+            toast.success(`Voucher ${deleting.voucherNumber} deleted`);
+          } catch (err) {
+            // Most likely a locked period: the RLS update policy refuses an
+            // accountant's change to a voucher dated on or before the lock
+            // date, and there is no way to know that before trying.
+            toast.error(
+              toUserMessage(err, "Could not delete this voucher — it may fall in a locked period.")
+            );
+            throw err;
+          }
+        }}
       />
 
       <CsvImportModal

@@ -85,6 +85,98 @@ export async function getAllLedgerGroups(supabase: SupabaseClient<Database>, com
   return (data ?? []).map(mapGroup);
 }
 
+export interface AccountGroupInput {
+  name: string;
+  parentGroupId: string | null;
+  ledgerRole: LedgerRole;
+  sortOrder?: number;
+}
+
+/**
+ * `nature` and `normal_balance` are deliberately absent from the insert: the
+ * enforce_account_group_nature trigger overwrites nature with the parent's,
+ * so sending one would only be a lie that the database silently corrects.
+ * Every group created here is a sub-group — a new root would have no nature
+ * to inherit, and the eight roots are seeded, system-owned and fixed.
+ */
+export async function createAccountGroup(
+  supabase: SupabaseClient<Database>,
+  companyId: string,
+  input: AccountGroupInput & { parentGroupId: string }
+): Promise<string> {
+  const parent = await getAccountGroupById(supabase, input.parentGroupId);
+
+  const { data, error } = await supabase
+    .from("account_groups")
+    .insert({
+      company_id: companyId,
+      parent_group_id: input.parentGroupId,
+      name: input.name,
+      // Both are NOT NULL with no default, so they have to be supplied even
+      // though the trigger then replaces nature with the parent's.
+      nature: parent.nature,
+      normal_balance: parent.normalBalance,
+      ledger_role: input.ledgerRole,
+      sort_order: input.sortOrder ?? 0,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+export async function updateAccountGroup(
+  supabase: SupabaseClient<Database>,
+  groupId: string,
+  input: Partial<AccountGroupInput>
+): Promise<void> {
+  const patch: Database["public"]["Tables"]["account_groups"]["Update"] = {};
+  if (input.name !== undefined) patch.name = input.name;
+  if (input.parentGroupId !== undefined) patch.parent_group_id = input.parentGroupId;
+  if (input.ledgerRole !== undefined) patch.ledger_role = input.ledgerRole;
+  if (input.sortOrder !== undefined) patch.sort_order = input.sortOrder;
+
+  const { error } = await supabase.from("account_groups").update(patch).eq("id", groupId);
+  if (error) throw error;
+}
+
+export async function deleteAccountGroup(
+  supabase: SupabaseClient<Database>,
+  groupId: string
+): Promise<void> {
+  const { error } = await supabase.from("account_groups").delete().eq("id", groupId);
+  if (error) throw error;
+}
+
+export async function getAccountGroupById(
+  supabase: SupabaseClient<Database>,
+  groupId: string
+): Promise<AccountGroup & { normalBalance: "debit" | "credit" }> {
+  const { data, error } = await supabase
+    .from("account_groups")
+    .select("*")
+    .eq("id", groupId)
+    .single();
+  if (error) throw error;
+  return { ...mapGroup(data), normalBalance: data.normal_balance as "debit" | "credit" };
+}
+
+/** How many ledgers sit in each group — a group with ledgers can't be deleted. */
+export async function getLedgerCountsByGroup(
+  supabase: SupabaseClient<Database>,
+  companyId: string
+): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from("ledgers")
+    .select("group_id")
+    .eq("company_id", companyId);
+  if (error) throw error;
+
+  const counts = new Map<string, number>();
+  for (const row of data ?? []) counts.set(row.group_id, (counts.get(row.group_id) ?? 0) + 1);
+  return counts;
+}
+
 export interface SearchLedgersParams {
   q?: string;
   groupId?: string;
