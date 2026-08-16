@@ -178,6 +178,23 @@ npm test           # vitest, unit tests
 npm run test:e2e   # playwright, end-to-end (see below)
 ```
 
+## Demo data
+
+`supabase/seeds/demo_company.sql` builds a company that exercises the whole
+app in one place — a three-level group tree, a group left on `ledger_role`
+`other`, a deactivated ledger, one voucher of each of the six types across two
+months, and a lock date. It is on a **July** financial year on purpose: an
+April one hides the most common class of date bug, because April is also the
+default.
+
+Opening balances are chosen to balance, so the Trial Balance tallies from the
+first screen. It assigns the company to an existing auth user and does not
+create accounts.
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/seeds/demo_company.sql
+```
+
 ## Tests
 
 Three layers, covering three different kinds of mistake.
