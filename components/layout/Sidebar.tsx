@@ -80,7 +80,7 @@ export function Sidebar({ companyId }: { companyId: string }) {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+    <aside data-print-hide className="flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="p-3">
         <CompanySwitcher activeCompanyId={companyId} />
       </div>

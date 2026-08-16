@@ -1,0 +1,179 @@
+/*
+ * Print styling for the five reports.
+ *
+ * A client is far more likely to see a printed Balance Sheet than the app, so
+ * what comes out of the printer has to read as a financial statement rather
+ * than a screenshot of a web page: no app chrome, no filter controls, black
+ * on white, and a header identifying the company, the report and its period.
+ *
+ * Opt-in by attribute rather than by tag so that hiding a control at print
+ * time is always a deliberate act, visible in the component that owns it.
+ */
+
+/* Print-only blocks are out of the screen layout entirely, not merely
+   invisible — a hidden statement header must not leave a gap or be read out
+   by a screen reader. */
+[data-print-only] {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4;
+    /* Chrome and Edge do not implement @page margin boxes, so "page n of m"
+       has to come from the browser's own print header/footer setting. Nothing
+       here can supply it. */
+    margin: 14mm;
+  }
+
+  [data-print-hide] {
+    display: none !important;
+  }
+
+  [data-print-only] {
+    display: block;
+  }
+
+  /* The app shell is a fixed-height flex column with an internally scrolling
+     <main>. Left alone, that prints exactly one viewport of a long report and
+     silently drops the rest. */
+  html,
+  body,
+  body > div,
+  main {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 10.5pt;
+    line-height: 1.35;
+  }
+
+  /* Report pages are centred and padded for the screen; on paper the @page
+     margin is doing that job. */
+  main > div {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Cards become plain sheets: the ring, shadow and radius all read as
+     interface, not document. */
+  [class*="shadow"],
+  [class*="ring-"] {
+    box-shadow: none !important;
+  }
+
+  [class*="rounded"] {
+    border-radius: 0 !important;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  /* Repeat column headings on every sheet of a multi-page statement. */
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
+  tr,
+  /* Balance Sheet and P&L group blocks — keep a heading with its rows. */
+  [data-print-group] {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  th,
+  td {
+    padding: 4pt 6pt !important;
+    border-bottom: 0.5pt solid #999 !important;
+    color: #000 !important;
+    background: transparent !important;
+  }
+
+  thead th {
+    border-bottom: 1pt solid #000 !important;
+    font-size: 8.5pt;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  tfoot td,
+  tfoot th {
+    border-top: 1pt solid #000 !important;
+    border-bottom: none !important;
+    font-weight: 600;
+  }
+
+  /* Muted greys are a screen affordance; on paper they just print weakly. */
+  [class*="text-muted-foreground"] {
+    color: #000 !important;
+  }
+
+  a {
+    color: #000 !important;
+    text-decoration: none !important;
+  }
+
+  /* ---- statement masthead ---------------------------------------------- */
+
+  .statement-header {
+    margin-bottom: 10pt;
+    padding-bottom: 6pt;
+    border-bottom: 1pt solid #000;
+    text-align: center;
+  }
+
+  .statement-company {
+    margin: 0;
+    font-size: 9pt;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  /* Financial statements have always been set with serif headings, and a
+     locally available serif gets that for nothing — no webfont to load, and
+     it never reaches the screen. */
+  .statement-title {
+    margin: 2pt 0 0;
+    font-family: "Iowan Old Style", Charter, Cambria, Georgia, serif;
+    font-size: 17pt;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .statement-period {
+    margin: 2pt 0 0;
+    font-size: 10pt;
+  }
+
+  .statement-meta {
+    margin: 1pt 0 0;
+    font-size: 8.5pt;
+    color: #444 !important;
+  }
+
+  .statement-footer {
+    margin-top: 10pt;
+    padding-top: 5pt;
+    border-top: 0.5pt solid #999;
+    text-align: center;
+  }
+
+  .statement-footer-note {
+    margin: 0;
+    font-size: 9.5pt;
+    font-weight: 600;
+  }
+}

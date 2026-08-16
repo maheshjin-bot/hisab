@@ -5,10 +5,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ReportDateRangeFilter, defaultDateRange } from "@/components/reports/ReportDateRangeFilter";
 import { LedgerCombobox } from "@/components/ledgers/LedgerCombobox";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
+import { PrintButton } from "@/components/reports/PrintButton";
+import { StatementFooter, StatementHeader } from "@/components/reports/StatementHeader";
 import { useLedgerStatementQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getLedgerStatement } from "@/lib/supabase/queries/reports";
 import { formatCurrency } from "@/lib/utils/currency";
+import { rangePeriod } from "@/lib/utils/statement-period";
 import type { LedgerSearchResult } from "@/lib/supabase/queries/ledgers";
 
 const ANY_SIDE_RULE = { label: "Ledger", allowedRoles: "any" as const, filterMode: "soft" as const, defaultRowCount: 1, minRows: 1 };
@@ -23,9 +26,19 @@ export default function LedgerStatementPage({ params }: PageProps<"/[companyId]/
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-6">
-      <div className="flex items-center justify-between">
+      {ledger && (
+        <StatementHeader
+          companyId={companyId}
+          title={`Ledger Statement — ${ledger.name}`}
+          period={rangePeriod(range.from, range.to)}
+        />
+      )}
+
+      <div data-print-hide className="flex items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">Ledger Statement</h1>
         {ledger && (
+          <div className="flex gap-2">
+          <PrintButton />
           <CsvExportButton
             filename={`ledger-statement-${ledger.name}.csv`}
             columns={[
@@ -39,10 +52,11 @@ export default function LedgerStatementPage({ params }: PageProps<"/[companyId]/
             ]}
             fetchRows={() => getLedgerStatement(supabase, companyId, ledger.id, range.from, range.to)}
           />
+          </div>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div data-print-hide className="flex flex-wrap items-center gap-2">
         <div className="w-64">
           <LedgerCombobox companyId={companyId} value={ledger?.id ?? ""} displayName={ledger?.name} onSelect={setLedger} sideRule={ANY_SIDE_RULE} />
         </div>
@@ -87,6 +101,8 @@ export default function LedgerStatementPage({ params }: PageProps<"/[companyId]/
           </table>
         </div>
       )}
+
+      <StatementFooter />
     </div>
   );
 }

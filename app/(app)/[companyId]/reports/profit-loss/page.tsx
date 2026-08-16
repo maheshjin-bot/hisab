@@ -5,14 +5,17 @@ import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ReportDateRangeFilter, defaultDateRange } from "@/components/reports/ReportDateRangeFilter";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
+import { PrintButton } from "@/components/reports/PrintButton";
+import { StatementFooter, StatementHeader } from "@/components/reports/StatementHeader";
 import { useProfitAndLossQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getProfitAndLoss, type ProfitAndLossRow } from "@/lib/supabase/queries/reports";
 import { formatCurrency } from "@/lib/utils/currency";
+import { rangePeriod } from "@/lib/utils/statement-period";
 
 function Section({ title, rows, total, totalLabel }: { title: string; rows: ProfitAndLossRow[]; total: number; totalLabel: string }) {
   return (
-    <div className="overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
+    <div data-print-group className="overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
       <div className="border-b bg-muted/40 px-3 py-2 text-sm font-medium">{title}</div>
       <table className="w-full text-sm">
         <tbody>
@@ -57,8 +60,16 @@ export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/re
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-6">
-      <div className="flex items-center justify-between">
+      <StatementHeader
+        companyId={companyId}
+        title="Trading & Profit and Loss Account"
+        period={rangePeriod(range.from, range.to)}
+      />
+
+      <div data-print-hide className="flex items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">Trading & Profit and Loss Account</h1>
+        <div className="flex gap-2">
+        <PrintButton />
         <CsvExportButton
           filename="profit-and-loss.csv"
           columns={[
@@ -69,9 +80,12 @@ export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/re
           ]}
           fetchRows={() => getProfitAndLoss(supabase, companyId, range.from, range.to)}
         />
+        </div>
       </div>
 
-      <ReportDateRangeFilter value={range} onChange={setRange} />
+      <div data-print-hide>
+        <ReportDateRangeFilter value={range} onChange={setRange} />
+      </div>
 
       {isLoading ? (
         <Skeleton className="h-96 w-full" />
@@ -112,6 +126,14 @@ export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/re
           </div>
         </div>
       )}
+
+      <StatementFooter
+        note={
+          isLoading
+            ? undefined
+            : `${netProfit >= 0 ? "Net Profit" : "Net Loss"} ${formatCurrency(Math.abs(netProfit))}`
+        }
+      />
     </div>
   );
 }

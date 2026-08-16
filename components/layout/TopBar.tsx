@@ -32,7 +32,7 @@ export function TopBar({ companyId, userEmail }: { companyId: string; userEmail:
   const initial = (userEmail ?? "?").charAt(0).toUpperCase();
 
   return (
-    <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur-sm">
+    <header data-print-hide className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur-sm">
       <button
         type="button"
         onClick={() => setPaletteOpen(true)}

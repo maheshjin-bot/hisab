@@ -4,10 +4,13 @@ import { use, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
+import { PrintButton } from "@/components/reports/PrintButton";
+import { StatementFooter, StatementHeader } from "@/components/reports/StatementHeader";
 import { useTrialBalanceQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getTrialBalance } from "@/lib/supabase/queries/reports";
 import { formatCurrency } from "@/lib/utils/currency";
+import { asOfPeriod } from "@/lib/utils/statement-period";
 
 function isoToday() {
   return new Date().toISOString().slice(0, 10);
@@ -22,11 +25,16 @@ export default function TrialBalancePage({ params }: PageProps<"/[companyId]/rep
   const rows = (data ?? []).filter((r) => r.debitBalance !== 0 || r.creditBalance !== 0);
   const totalDebit = rows.reduce((sum, r) => sum + r.debitBalance, 0);
   const totalCredit = rows.reduce((sum, r) => sum + r.creditBalance, 0);
+  const tallies = Math.round(totalDebit * 100) === Math.round(totalCredit * 100);
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-6">
-      <div className="flex items-center justify-between">
+      <StatementHeader companyId={companyId} title="Trial Balance" period={asOfPeriod(asOfDate)} />
+
+      <div data-print-hide className="flex items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">Trial Balance</h1>
+        <div className="flex gap-2">
+        <PrintButton />
         <CsvExportButton
           filename="trial-balance.csv"
           columns={[
@@ -37,9 +45,10 @@ export default function TrialBalancePage({ params }: PageProps<"/[companyId]/rep
           ]}
           fetchRows={() => getTrialBalance(supabase, companyId, asOfDate)}
         />
+        </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div data-print-hide className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">As of</span>
         <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
       </div>
@@ -80,12 +89,22 @@ export default function TrialBalancePage({ params }: PageProps<"/[companyId]/rep
         </div>
       )}
 
-      {!isLoading && Math.round(totalDebit * 100) !== Math.round(totalCredit * 100) && (
-        <p className="text-sm text-destructive">
+      {!isLoading && !tallies && (
+        <p data-print-hide className="text-sm text-destructive">
           Trial balance does not tally — debit and credit totals differ by {formatCurrency(Math.abs(totalDebit - totalCredit))}. This
           should not be possible; please report it.
         </p>
       )}
+
+      <StatementFooter
+        note={
+          isLoading
+            ? undefined
+            : tallies
+              ? "Debits and credits tally."
+              : `Does not tally — difference of ${formatCurrency(Math.abs(totalDebit - totalCredit))}.`
+        }
+      />
     </div>
   );
 }

@@ -5,10 +5,13 @@ import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ReportDateRangeFilter, defaultDateRange } from "@/components/reports/ReportDateRangeFilter";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
+import { PrintButton } from "@/components/reports/PrintButton";
+import { StatementFooter, StatementHeader } from "@/components/reports/StatementHeader";
 import { useDaybookQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getDaybook } from "@/lib/supabase/queries/reports";
 import { formatCurrency } from "@/lib/utils/currency";
+import { rangePeriod } from "@/lib/utils/statement-period";
 
 export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/daybook">) {
   const { companyId } = use(params);
@@ -18,8 +21,12 @@ export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-6">
-      <div className="flex items-center justify-between">
+      <StatementHeader companyId={companyId} title="Daybook" period={rangePeriod(range.from, range.to)} />
+
+      <div data-print-hide className="flex items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">Daybook</h1>
+        <div className="flex gap-2">
+        <PrintButton />
         <CsvExportButton
           filename="daybook.csv"
           columns={[
@@ -33,9 +40,12 @@ export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/
           ]}
           fetchRows={() => getDaybook(supabase, companyId, range.from, range.to)}
         />
+        </div>
       </div>
 
-      <ReportDateRangeFilter value={range} onChange={setRange} />
+      <div data-print-hide>
+        <ReportDateRangeFilter value={range} onChange={setRange} />
+      </div>
 
       {isLoading ? (
         <Skeleton className="h-96 w-full" />
@@ -80,6 +90,8 @@ export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/
           </table>
         </div>
       )}
+
+      <StatementFooter />
     </div>
   );
 }

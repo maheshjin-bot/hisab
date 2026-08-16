@@ -5,10 +5,13 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
+import { PrintButton } from "@/components/reports/PrintButton";
+import { StatementFooter, StatementHeader } from "@/components/reports/StatementHeader";
 import { useBalanceSheetQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getBalanceSheet, type BalanceSheetRow } from "@/lib/supabase/queries/reports";
 import { formatCurrency } from "@/lib/utils/currency";
+import { asOfPeriod } from "@/lib/utils/statement-period";
 
 function isoToday() {
   return new Date().toISOString().slice(0, 10);
@@ -24,7 +27,7 @@ function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]
   }
 
   return (
-    <div className="overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
+    <div data-print-group className="overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
       <div className="border-b bg-muted/40 px-3 py-2 text-sm font-medium">{title}</div>
       <table className="w-full text-sm">
         <tbody>
@@ -78,8 +81,12 @@ export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/rep
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-6">
-      <div className="flex items-center justify-between">
+      <StatementHeader companyId={companyId} title="Balance Sheet" period={asOfPeriod(asOfDate)} />
+
+      <div data-print-hide className="flex items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">Balance Sheet</h1>
+        <div className="flex gap-2">
+        <PrintButton />
         <CsvExportButton
           filename="balance-sheet.csv"
           columns={[
@@ -90,9 +97,10 @@ export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/rep
           ]}
           fetchRows={() => getBalanceSheet(supabase, companyId, asOfDate)}
         />
+        </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div data-print-hide className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">As of</span>
         <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
       </div>
@@ -105,13 +113,23 @@ export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/rep
             <Column title="Liabilities" rows={liabilities} total={totalLiabilities} />
             <Column title="Assets" rows={assets} total={totalAssets} />
           </div>
-          <p className={cn("text-center text-sm font-medium", tallies ? "text-success" : "text-destructive")}>
+          <p data-print-hide className={cn("text-center text-sm font-medium", tallies ? "text-success" : "text-destructive")}>
             {tallies
               ? "Balance sheet tallies."
               : `Does not tally — off by ${formatCurrency(Math.abs(totalLiabilities - totalAssets))}. This should not be possible; please report it.`}
           </p>
         </>
       )}
+
+      <StatementFooter
+        note={
+          isLoading
+            ? undefined
+            : tallies
+              ? "Balance sheet tallies."
+              : `Does not tally — off by ${formatCurrency(Math.abs(totalLiabilities - totalAssets))}.`
+        }
+      />
     </div>
   );
 }
