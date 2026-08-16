@@ -14,6 +14,7 @@ export function VoucherPartyField({
   triggerRef,
   onKeyDown,
   autoFocus,
+  initialLedgerName,
 }: {
   companyId: string;
   control: Control<VoucherFormValues>;
@@ -21,6 +22,8 @@ export function VoucherPartyField({
   triggerRef: (el: HTMLElement | null) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   autoFocus?: boolean;
+  /** Label to show before the user picks — the existing ledger when editing. */
+  initialLedgerName?: string;
 }) {
   return (
     <Field>
@@ -32,6 +35,7 @@ export function VoucherPartyField({
           <LedgerCombobox
             companyId={companyId}
             value={field.value}
+            displayName={initialLedgerName}
             onSelect={(ledger: LedgerSearchResult) => field.onChange(ledger.id)}
             sideRule={sideRule}
             triggerRef={triggerRef}

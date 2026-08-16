@@ -23,6 +23,8 @@ export interface VoucherLineRowProps {
   registerCell: (rowId: string, columnKey: string) => (el: HTMLElement | null) => void;
   onCellKeyDown: (e: React.KeyboardEvent, rowId: string, columnKey: string) => void;
   autoFocusLedger?: boolean;
+  /** Label to show before the user picks — the existing ledger when editing. */
+  initialLedgerName?: string;
 }
 
 export function VoucherLineRow({
@@ -38,6 +40,7 @@ export function VoucherLineRow({
   registerCell,
   onCellKeyDown,
   autoFocusLedger,
+  initialLedgerName,
 }: VoucherLineRowProps) {
   const amountField = side === "credit" ? "creditAmount" : "debitAmount";
 
@@ -50,7 +53,7 @@ export function VoucherLineRow({
           <LedgerCombobox
             companyId={companyId}
             value={field.value}
-            displayName={undefined}
+            displayName={initialLedgerName}
             onSelect={(ledger: LedgerSearchResult) => field.onChange(ledger.id)}
             sideRule={sideRule}
             triggerRef={registerCell(rowId, "ledger")}
@@ -95,7 +98,17 @@ export function VoucherLineRow({
       />
 
       {showRemove ? (
-        <Button type="button" variant="ghost" size="icon-sm" onClick={onRemove} className="text-muted-foreground">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={onRemove}
+          // An icon-only button with no name is unusable with a screen
+          // reader — "button" tells you nothing about which line it drops.
+          aria-label={`Remove line ${index + 1}`}
+          title={`Remove line ${index + 1}`}
+          className="text-muted-foreground"
+        >
           <Trash2 className="size-3.5" />
         </Button>
       ) : (

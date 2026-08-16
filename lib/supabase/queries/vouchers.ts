@@ -49,7 +49,13 @@ function toRpcLines(lines: VoucherLineInput[]) {
  * every call site.
  */
 function nullable<T>(value: T | null | undefined): T {
-  return (value ?? null) as T;
+  if (value === undefined || value === null) return null as T;
+  // An empty string is the form saying "not filled in", not a value. The
+  // voucher form defaults referenceDate and referenceNumber to "", and
+  // Postgres rejects '' for a date outright — `invalid input syntax for type
+  // date: ""` — so saving any voucher without a reference date failed.
+  if (typeof value === "string" && value.trim() === "") return null as T;
+  return value;
 }
 
 /** Header + all lines, committed atomically — never build this from separate .insert() calls (see migration 0004). */

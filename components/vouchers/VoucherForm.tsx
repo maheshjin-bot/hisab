@@ -204,6 +204,7 @@ export function VoucherForm({
           triggerRef={registerCell(fields[0]?.id ?? "party", "party-ledger")}
           onKeyDown={() => {}}
           autoFocus
+          initialLedgerName={initialValues?.lines[0]?.ledgerName}
         />
       )}
 
@@ -229,6 +230,7 @@ export function VoucherForm({
                 onToggleSide={isSingleParty ? undefined : () => toggleRowSide(index)}
                 showRemove={fields.length - gridStartIndex > gridRule.minRows}
                 onRemove={() => remove(index)}
+                initialLedgerName={initialValues?.lines[index]?.ledgerName}
                 registerCell={registerCell}
                 onCellKeyDown={handleCellKeyDown}
                 autoFocusLedger={!isSingleParty && i === 0}

@@ -30,6 +30,11 @@ export interface LedgerComboboxProps {
 export function LedgerCombobox({ companyId, value, displayName, onSelect, sideRule, triggerRef, onKeyDown, autoFocus, placeholder }: LedgerComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  // What the user just picked. Without this the trigger keeps showing its
+  // placeholder after a selection, because the form stores only the ledger id
+  // and the caller has no name to hand back — so choosing a ledger looked
+  // like it had done nothing at all.
+  const [picked, setPicked] = useState<LedgerSearchResult | null>(null);
   const { data: results, isFetching } = useLedgerSearchQuery(companyId, query);
 
   const ranked = [...(results ?? [])].sort((a, b) => {
@@ -42,10 +47,16 @@ export function LedgerCombobox({ companyId, value, displayName, onSelect, sideRu
   const visible = sideRule.filterMode === "hard" ? ranked.filter((l) => isRoleAllowed(sideRule, l.ledgerRole)) : ranked;
 
   function handleSelect(ledger: LedgerSearchResult) {
+    setPicked(ledger);
     onSelect(ledger);
     setOpen(false);
     setQuery("");
   }
+
+  // `displayName` is the caller's initial label when editing an existing
+  // voucher; a fresh pick supersedes it. If the field is cleared from outside,
+  // neither applies and the placeholder returns.
+  const label = value ? (picked?.name ?? displayName) : undefined;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -67,8 +78,8 @@ export function LedgerCombobox({ companyId, value, displayName, onSelect, sideRu
           />
         }
       >
-        <span className={cn("truncate text-left", !displayName && "text-muted-foreground")}>
-          {displayName || placeholder || "Select ledger…"}
+        <span className={cn("truncate text-left", !label && "text-muted-foreground")}>
+          {label || placeholder || "Select ledger…"}
         </span>
         <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
       </PopoverTrigger>

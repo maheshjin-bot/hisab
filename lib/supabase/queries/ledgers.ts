@@ -297,6 +297,25 @@ export interface LedgerInput {
   notes?: string;
 }
 
+/**
+ * Empty string -> null for optional text columns.
+ *
+ * The ledger form and the CSV importer both default blank optional fields to
+ * "" rather than undefined, and `ledgers_email_check` is
+ * `email IS NULL OR email ~* '<address>'` — which "" satisfies neither way.
+ * The result was that creating a ledger without an email failed outright,
+ * with a 23514 the user saw only as "Those values aren't valid for this
+ * record".
+ *
+ * Normalising here rather than in each form keeps the rule in one place: a
+ * blank optional field means "not provided", which in SQL is null.
+ */
+export function nullIfBlank(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
 export async function createLedger(
   supabase: SupabaseClient<Database>,
   companyId: string,
@@ -310,11 +329,11 @@ export async function createLedger(
       group_id: input.groupId,
       opening_balance_amount: input.openingBalanceAmount ?? 0,
       opening_balance_type: input.openingBalanceType ?? "debit",
-      contact_person: input.contactPerson,
-      phone: input.phone,
-      email: input.email,
-      address: input.address,
-      notes: input.notes,
+      contact_person: nullIfBlank(input.contactPerson),
+      phone: nullIfBlank(input.phone),
+      email: nullIfBlank(input.email),
+      address: nullIfBlank(input.address),
+      notes: nullIfBlank(input.notes),
     })
     .select("id")
     .single();
@@ -332,11 +351,11 @@ export async function updateLedger(
   if (input.groupId !== undefined) patch.group_id = input.groupId;
   if (input.openingBalanceAmount !== undefined) patch.opening_balance_amount = input.openingBalanceAmount;
   if (input.openingBalanceType !== undefined) patch.opening_balance_type = input.openingBalanceType;
-  if (input.contactPerson !== undefined) patch.contact_person = input.contactPerson;
-  if (input.phone !== undefined) patch.phone = input.phone;
-  if (input.email !== undefined) patch.email = input.email;
-  if (input.address !== undefined) patch.address = input.address;
-  if (input.notes !== undefined) patch.notes = input.notes;
+  if (input.contactPerson !== undefined) patch.contact_person = nullIfBlank(input.contactPerson);
+  if (input.phone !== undefined) patch.phone = nullIfBlank(input.phone);
+  if (input.email !== undefined) patch.email = nullIfBlank(input.email);
+  if (input.address !== undefined) patch.address = nullIfBlank(input.address);
+  if (input.notes !== undefined) patch.notes = nullIfBlank(input.notes);
   if (input.isActive !== undefined) patch.is_active = input.isActive;
 
   const { error } = await supabase.from("ledgers").update(patch).eq("id", ledgerId);
@@ -365,11 +384,11 @@ export async function bulkInsertLedgers(
     group_id: r.groupId,
     opening_balance_amount: r.openingBalanceAmount ?? 0,
     opening_balance_type: r.openingBalanceType ?? "debit",
-    contact_person: r.contactPerson,
-    phone: r.phone,
-    email: r.email,
-    address: r.address,
-    notes: r.notes,
+    contact_person: nullIfBlank(r.contactPerson),
+    phone: nullIfBlank(r.phone),
+    email: nullIfBlank(r.email),
+    address: nullIfBlank(r.address),
+    notes: nullIfBlank(r.notes),
   }));
 
   const { error, count } = await supabase.from("ledgers").insert(payload, { count: "exact" });
