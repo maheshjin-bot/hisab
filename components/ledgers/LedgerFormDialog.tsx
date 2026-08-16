@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Field, FieldGroup, FieldLabel, FieldError, FieldSet, FieldLegend } from "@/components/ui/field";
 import { useLedgerGroupsQuery, useCreateLedgerMutation, useUpdateLedgerMutation } from "@/hooks/useLedgersQuery";
 import type { Ledger } from "@/lib/supabase/queries/ledgers";
+import { errorMessage } from "@/lib/utils/error-message";
 
 const schema = z.object({
   name: z.string().trim().min(1, { error: "Name is required" }),
@@ -39,16 +40,24 @@ export function LedgerFormDialog({
   onOpenChange,
   companyId,
   ledger,
+  canEditFinancials = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   companyId: string;
   ledger?: Ledger;
+  /** True for admins. app_private.protect_ledger_financial_fields() rejects a
+   *  group or opening-balance change from anyone else, so those fields are
+   *  locked here rather than letting the save fail after the fact. */
+  canEditFinancials?: boolean;
 }) {
   const { data: groups } = useLedgerGroupsQuery(companyId);
   const createLedger = useCreateLedgerMutation(companyId);
   const updateLedger = useUpdateLedgerMutation(companyId);
   const isEdit = !!ledger;
+  // Only locked when editing: the trigger compares against the previous row,
+  // so it has nothing to say about the values on a brand-new ledger.
+  const financialsLocked = isEdit && !canEditFinancials;
 
   const { control, handleSubmit, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -87,7 +96,7 @@ export function LedgerFormDialog({
       }
       onOpenChange(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save ledger");
+      toast.error(errorMessage(err, "Could not save ledger"));
     }
   }
 
@@ -113,7 +122,7 @@ export function LedgerFormDialog({
                 name="groupId"
                 control={control}
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange} disabled={isEdit}>
+                  <Select value={field.value} onValueChange={field.onChange} disabled={financialsLocked}>
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select a group" />
                     </SelectTrigger>
@@ -127,7 +136,7 @@ export function LedgerFormDialog({
                   </Select>
                 )}
               />
-              {isEdit && <p className="text-xs text-muted-foreground">Only an admin can reclassify a ledger&apos;s group.</p>}
+              {financialsLocked && <p className="text-xs text-muted-foreground">Only an admin can reclassify a ledger&apos;s group.</p>}
               {errors.groupId && <FieldError>{errors.groupId.message}</FieldError>}
             </Field>
 
@@ -143,7 +152,7 @@ export function LedgerFormDialog({
                         type="number"
                         step="0.01"
                         min="0"
-                        disabled={isEdit}
+                        disabled={financialsLocked}
                         value={field.value}
                         onChange={(e) => field.onChange(Number(e.target.value))}
                       />
@@ -155,7 +164,7 @@ export function LedgerFormDialog({
                     name="openingBalanceType"
                     control={control}
                     render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange} disabled={isEdit}>
+                      <Select value={field.value} onValueChange={field.onChange} disabled={financialsLocked}>
                         <SelectTrigger className="w-full">
                           <SelectValue />
                         </SelectTrigger>
@@ -168,7 +177,7 @@ export function LedgerFormDialog({
                   />
                 </Field>
               </div>
-              {isEdit && <p className="text-xs text-muted-foreground">Only an admin can change the opening balance once set.</p>}
+              {financialsLocked && <p className="text-xs text-muted-foreground">Only an admin can change the opening balance once set.</p>}
             </FieldSet>
 
             <div className="grid grid-cols-2 gap-3">

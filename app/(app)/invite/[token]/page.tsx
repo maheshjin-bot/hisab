@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { useAcceptInviteMutation } from "@/hooks/useCompaniesQuery";
+import { errorMessage } from "@/lib/utils/error-message";
 
 /**
  * Redeems an invite token. The (app) layout above has already guaranteed a
@@ -19,13 +20,11 @@ import { useAcceptInviteMutation } from "@/hooks/useCompaniesQuery";
 export default function AcceptInvitePage({ params }: PageProps<"/invite/[token]">) {
   const { token } = use(params);
   const router = useRouter();
-  const acceptInvite = useAcceptInviteMutation();
+  // Destructured because the object useMutation returns is new on every
+  // render, while mutateAsync itself is a stable reference — so this can go in
+  // the dependency array without re-running the effect each render.
+  const { mutateAsync } = useAcceptInviteMutation();
   const [error, setError] = useState<string | null>(null);
-
-  // useMutation returns a fresh object each render, so it can't go in the
-  // dependency array without re-running the effect on every render.
-  const acceptRef = useRef(acceptInvite);
-  acceptRef.current = acceptInvite;
 
   // Redeeming is not idempotent from the user's point of view — a second call
   // fails with "no longer pending" — and React runs effects twice in
@@ -40,11 +39,10 @@ export default function AcceptInvitePage({ params }: PageProps<"/invite/[token]"
     // callbacks are dropped if the observer unmounts before the request
     // settles, which is exactly what StrictMode's remount does. The promise
     // returned here settles either way.
-    acceptRef.current
-      .mutateAsync(token)
+    mutateAsync(token)
       .then((companyId) => router.replace(`/${companyId}/dashboard`))
-      .catch((err: unknown) => setError(errorMessage(err)));
-  }, [router, token]);
+      .catch((err: unknown) => setError(errorMessage(err, "This invite could not be accepted.")));
+  }, [mutateAsync, router, token]);
 
   if (error) {
     return (
@@ -70,19 +68,6 @@ export default function AcceptInvitePage({ params }: PageProps<"/invite/[token]"
       <p className="mt-2 text-sm text-muted-foreground">One moment while we accept your invite.</p>
     </Centered>
   );
-}
-
-/**
- * PostgrestError is a plain object, not an Error instance, so an
- * `instanceof Error` check alone silently discards every message the RPC
- * raises — which here is all of them.
- */
-function errorMessage(err: unknown): string {
-  if (typeof err === "object" && err !== null && "message" in err) {
-    const message = (err as { message?: unknown }).message;
-    if (typeof message === "string" && message.trim()) return message;
-  }
-  return "This invite could not be accepted.";
 }
 
 function Centered({ children }: { children: React.ReactNode }) {

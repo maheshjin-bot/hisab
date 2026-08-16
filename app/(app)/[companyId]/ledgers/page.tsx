@@ -3,19 +3,23 @@
 import { use, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Plus, Search, Upload } from "lucide-react";
+import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, DEFAULT_PAGE_SIZE } from "@/components/data-table/DataTable";
-import { ledgerColumns } from "@/components/ledgers/ledger-columns";
+import { buildLedgerColumns } from "@/components/ledgers/ledger-columns";
 import { LedgerFormDialog } from "@/components/ledgers/LedgerFormDialog";
 import { CsvImportModal } from "@/components/csv/CsvImportModal";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
-import { useLedgerGroupsQuery, useLedgersQuery } from "@/hooks/useLedgersQuery";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useLedgerGroupsQuery, useLedgersQuery, useUpdateLedgerMutation } from "@/hooks/useLedgersQuery";
+import { useCompanyRole } from "@/hooks/useCompaniesQuery";
 import { useSupabase } from "@/hooks/useSupabase";
 import { buildLedgerCsvImportConfig } from "@/lib/ledgers/ledger-csv-config";
-import { searchLedgers } from "@/lib/supabase/queries/ledgers";
+import { searchLedgers, type Ledger } from "@/lib/supabase/queries/ledgers";
+import { errorMessage } from "@/lib/utils/error-message";
 
 export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers">) {
   const { companyId } = use(params);
@@ -33,6 +37,11 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
   const [sorting, setSorting] = useState<{ id: string; desc: boolean }[]>([]);
   const [createOpen, setCreateOpen] = useState(() => searchParams.get("new") === "1");
   const [importOpen, setImportOpen] = useState(() => searchParams.get("import") === "1");
+  const [editing, setEditing] = useState<Ledger | null>(null);
+  const [togglingActive, setTogglingActive] = useState<Ledger | null>(null);
+
+  const isAdmin = useCompanyRole(companyId) === "admin";
+  const updateLedger = useUpdateLedgerMutation(companyId);
 
   const { data: groups } = useLedgerGroupsQuery(companyId);
   const { data, isLoading, isFetching } = useLedgersQuery(companyId, {
@@ -47,6 +56,11 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
   const importConfig = useMemo(
     () => buildLedgerCsvImportConfig(supabase, companyId, (data?.rows ?? []).map((l) => l.name)),
     [supabase, companyId, data?.rows]
+  );
+
+  const columns = useMemo(
+    () => buildLedgerColumns({ onEdit: setEditing, onToggleActive: setTogglingActive }),
+    []
   );
 
   return (
@@ -82,7 +96,7 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
       </div>
 
       <DataTable
-        columns={ledgerColumns}
+        columns={columns}
         data={data?.rows ?? []}
         rowCount={data?.total ?? 0}
         state={{ pagination, sorting }}
@@ -127,7 +141,48 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
         }
       />
 
-      <LedgerFormDialog open={createOpen} onOpenChange={setCreateOpen} companyId={companyId} />
+      <LedgerFormDialog open={createOpen} onOpenChange={setCreateOpen} companyId={companyId} canEditFinancials={isAdmin} />
+      <LedgerFormDialog
+        // Keyed so switching straight from one ledger's Edit to another's
+        // remounts the form rather than leaving the first one's values in it.
+        key={editing?.id ?? "none"}
+        open={!!editing}
+        onOpenChange={(open) => !open && setEditing(null)}
+        companyId={companyId}
+        ledger={editing ?? undefined}
+        canEditFinancials={isAdmin}
+      />
+      <ConfirmDialog
+        open={!!togglingActive}
+        onOpenChange={(open) => !open && setTogglingActive(null)}
+        title={togglingActive?.isActive ? "Deactivate this ledger?" : "Reactivate this ledger?"}
+        description={
+          togglingActive?.isActive ? (
+            <>
+              <b>{togglingActive.name}</b> will stop appearing when you pick a ledger on a voucher.
+              Its existing entries and history are untouched, and you can reactivate it at any time.
+            </>
+          ) : (
+            <>
+              <b>{togglingActive?.name}</b> will be selectable on vouchers again.
+            </>
+          )
+        }
+        confirmLabel={togglingActive?.isActive ? "Deactivate" : "Reactivate"}
+        destructive={togglingActive?.isActive}
+        onConfirm={async () => {
+          if (!togglingActive) return;
+          try {
+            await updateLedger.mutateAsync({
+              ledgerId: togglingActive.id,
+              input: { isActive: !togglingActive.isActive },
+            });
+          } catch (err) {
+            toast.error(errorMessage(err, "Could not update this ledger"));
+            throw err;
+          }
+        }}
+      />
       <CsvImportModal
         open={importOpen}
         onOpenChange={setImportOpen}

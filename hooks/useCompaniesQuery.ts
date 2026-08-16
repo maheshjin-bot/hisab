@@ -27,6 +27,18 @@ export function useCompaniesQuery() {
   });
 }
 
+/**
+ * The caller's role in one company, derived from the memberships list that is
+ * already cached for the company switcher — so this costs no extra request.
+ * `undefined` while loading, which callers should treat as "not yet known"
+ * rather than "no permission".
+ */
+export function useCompanyRole(companyId: string | undefined): CompanyRole | undefined {
+  const { data } = useCompaniesQuery();
+  if (!companyId) return undefined;
+  return data?.find((c) => c.id === companyId)?.role;
+}
+
 export function useCompanyQuery(companyId: string | undefined) {
   const supabase = useSupabase();
   return useQuery({
