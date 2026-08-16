@@ -74,9 +74,12 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
-      <h1 className="text-lg font-semibold tracking-tight">Settings</h1>
+      <div>
+        <h1 className="text-lg font-semibold tracking-tight">Settings</h1>
+        <p className="text-sm text-muted-foreground">Company details, the books lock date, and who has access.</p>
+      </div>
 
-      <section className="space-y-3 rounded-xl border p-4">
+      <section className="space-y-3 rounded-xl bg-card p-4 shadow-sm ring-1 ring-foreground/10">
         <h2 className="text-sm font-medium">Company</h2>
         {loadingCompany ? (
           <Skeleton className="h-24 w-full" />
@@ -118,7 +121,7 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
         )}
       </section>
 
-      <section className="space-y-3 rounded-xl border p-4">
+      <section className="space-y-3 rounded-xl bg-card p-4 shadow-sm ring-1 ring-foreground/10">
         <h2 className="text-sm font-medium">Members</h2>
         {loadingMembers ? (
           <Skeleton className="h-32 w-full" />

@@ -9,6 +9,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { useCompaniesQuery } from "@/hooks/useCompaniesQuery";
 import { useCompanyStore } from "@/stores/useCompanyStore";
 import { cn } from "@/lib/utils";
+import { getFinancialYearLabel } from "@/lib/utils/financial-year";
 
 export function CompanySwitcher({ activeCompanyId }: { activeCompanyId: string }) {
   const router = useRouter();
@@ -30,13 +31,24 @@ export function CompanySwitcher({ activeCompanyId }: { activeCompanyId: string }
         render={
           <Button
             variant="outline"
-            className="w-full justify-between px-2.5"
+            className="h-auto w-full justify-between gap-2 px-2 py-2"
           />
         }
       >
-        <span className="flex min-w-0 items-center gap-2">
-          <Building2 className="size-4 shrink-0 text-muted-foreground" />
-          <span className="truncate text-sm font-medium">{active?.name ?? "Select company"}</span>
+        <span className="flex min-w-0 items-center gap-2.5">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">
+            {active ? active.name.charAt(0).toUpperCase() : <Building2 className="size-4" />}
+          </span>
+          <span className="flex min-w-0 flex-col items-start gap-px">
+            <span className="w-full truncate text-left text-sm leading-tight font-medium">
+              {active?.name ?? "Select company"}
+            </span>
+            {active && (
+              <span className="text-[11px] leading-tight text-muted-foreground">
+                {getFinancialYearLabel(new Date(), active.financialYearStartMonth)}
+              </span>
+            )}
+          </span>
         </span>
         <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
       </PopoverTrigger>

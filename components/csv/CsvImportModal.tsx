@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducer, useRef } from "react";
+import { useReducer, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Download, Loader2, Upload } from "lucide-react";
 import {
   Dialog,
@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { parseCsvFile } from "@/lib/csv/parse";
 import { buildImportPreview } from "@/lib/csv/validate";
 import { downloadSampleCsv } from "@/lib/csv/template";
@@ -72,6 +74,7 @@ export function CsvImportModal<TRow, TParsed, TContext = void>({
 }: CsvImportModalProps<TRow, TParsed, TContext>) {
   const [state, dispatch] = useReducer(reducer, { step: "select" });
   const contextRef = useRef<TContext | undefined>(undefined);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   async function handleFileSelected(file: File) {
     dispatch({ type: "PARSING" });
@@ -113,18 +116,30 @@ export function CsvImportModal<TRow, TParsed, TContext = void>({
         </DialogHeader>
 
         {state.step === "select" && (
-          <div className="space-y-4">
-            <button
-              type="button"
-              onClick={() => downloadSampleCsv(config)}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground hover:border-primary hover:text-primary"
+          <div className="space-y-3">
+            <Button type="button" variant="secondary" className="w-full" onClick={() => downloadSampleCsv(config)}>
+              <Download data-icon="inline-start" />
+              Download sample template
+            </Button>
+            <label
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragOver(true);
+              }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragOver(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) handleFileSelected(file);
+              }}
+              className={cn(
+                "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-8 text-center text-sm transition-all",
+                isDragOver ? "border-primary bg-accent/40 text-primary" : "border-border text-muted-foreground hover:border-primary hover:bg-accent/40 hover:text-primary"
+              )}
             >
-              <Download className="size-4" />
-              Download sample CSV template
-            </button>
-            <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-10 text-sm text-muted-foreground hover:border-primary hover:text-primary">
               <Upload className="size-6" />
-              <span>Click to choose a CSV file</span>
+              <span>Click to choose a CSV file, or drag it here</span>
               <input
                 type="file"
                 accept=".csv,text/csv"
@@ -241,33 +256,44 @@ function PreviewPanel({
         </div>
       )}
 
-      <div className="max-h-72 overflow-y-auto rounded-lg border">
+      <div className="max-h-72 overflow-y-auto rounded-xl ring-1 ring-foreground/10">
         <table className="w-full text-xs">
-          <thead className="sticky top-0 bg-muted/50">
+          <thead className="sticky top-0 bg-muted/60 text-muted-foreground">
             <tr>
-              <th className="p-2 text-left font-medium">Row</th>
-              <th className="p-2 text-left font-medium">Status</th>
-              <th className="p-2 text-left font-medium">Details</th>
+              <th className="px-2.5 py-2 text-left font-medium">Row</th>
+              <th className="px-2.5 py-2 text-left font-medium">Status</th>
+              <th className="px-2.5 py-2 text-left font-medium">Details</th>
             </tr>
           </thead>
           <tbody>
-            {shown.map((row) => (
-              <tr key={row.rowNumber} className="border-t">
-                <td className="p-2 text-muted-foreground">{row.rowNumber}</td>
-                <td className="p-2">
-                  {row.errors.length === 0 ? (
-                    <span className="text-success">Valid</span>
-                  ) : (
-                    <span className="text-destructive">Error</span>
-                  )}
-                </td>
-                <td className="p-2 text-muted-foreground">
-                  {row.errors.length === 0
-                    ? Object.values(row.raw).slice(0, 3).join(" · ")
-                    : row.errors.map((e) => e.message).join("; ")}
-                </td>
-              </tr>
-            ))}
+            {shown.map((row) => {
+              const hasErrors = row.errors.length > 0;
+              const errorMessage = row.errors.map((e) => e.message).join("; ");
+              return (
+                <tr key={row.rowNumber} className={cn("border-t", hasErrors && "bg-destructive/5")}>
+                  <td className="px-2.5 py-2 text-muted-foreground">{row.rowNumber}</td>
+                  <td className="px-2.5 py-2">
+                    {hasErrors ? (
+                      <Tooltip>
+                        <TooltipTrigger render={<span className="inline-flex cursor-default items-center gap-1 font-medium text-destructive" />}>
+                          <AlertCircle className="size-3.5" />
+                          Error
+                        </TooltipTrigger>
+                        <TooltipContent>{errorMessage}</TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 font-medium text-success">
+                        <CheckCircle2 className="size-3.5" />
+                        Valid
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2.5 py-2 text-muted-foreground">
+                    {hasErrors ? errorMessage : Object.values(row.raw).slice(0, 3).join(" · ")}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {hiddenCount > 0 && (

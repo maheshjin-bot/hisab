@@ -1,5 +1,6 @@
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { CommandPalette } from "./CommandPalette";
 
 export function AppShell({
   companyId,
@@ -14,9 +15,10 @@ export function AppShell({
     <div className="flex h-full">
       <Sidebar companyId={companyId} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar userEmail={userEmail} />
+        <TopBar companyId={companyId} userEmail={userEmail} />
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
+      <CommandPalette companyId={companyId} />
     </div>
   );
 }

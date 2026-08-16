@@ -20,4 +20,6 @@ export const queryKeys = {
   profitAndLoss: (companyId: string, from: string, to: string) =>
     ["companies", companyId, "reports", "profit-and-loss", from, to] as const,
   balanceSheet: (companyId: string, asOf: string) => ["companies", companyId, "reports", "balance-sheet", asOf] as const,
+
+  cashFlowSummary: (companyId: string, asOf: string) => ["companies", companyId, "dashboard", "cash-flow", asOf] as const,
 };

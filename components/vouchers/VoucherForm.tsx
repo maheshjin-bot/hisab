@@ -192,14 +192,10 @@ export function VoucherForm({
         />
       )}
 
-      <div className="rounded-xl border">
-        <div
-          className={`grid gap-2 border-b bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground ${
-            isSingleParty ? "grid-cols-[1fr_7rem_2rem]" : "grid-cols-[1fr_7rem_1fr_2rem]"
-          }`}
-        >
+      <div className="rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
+        <div className="grid grid-cols-[1fr_7rem_1fr_2rem] gap-2 border-b px-3 py-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
           <span>{isSingleParty ? gridRule.label : "Account"}</span>
-          {!isSingleParty && <span className="text-center">Dr/Cr</span>}
+          <span className="text-center">Dr/Cr</span>
           <span className="text-right">Amount</span>
           <span />
         </div>
@@ -228,7 +224,7 @@ export function VoucherForm({
         <button
           type="button"
           onClick={() => append(emptyLine())}
-          className="flex w-full items-center gap-1.5 border-t px-3 py-2 text-xs text-muted-foreground hover:text-foreground"
+          className="flex w-full items-center gap-1.5 rounded-b-xl border-t px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
         >
           <Plus className="size-3.5" />
           Add line (Tab/Enter on the last line also adds one)

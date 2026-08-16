@@ -52,7 +52,7 @@ export default function CompaniesPage() {
             key={company.id}
             href={`/${company.id}/dashboard`}
             onClick={() => setRecentCompanyId(company.id)}
-            className="flex items-center justify-between rounded-xl border bg-card p-4 transition-colors hover:bg-muted/50"
+            className="flex items-center justify-between rounded-xl bg-card p-4 shadow-sm ring-1 ring-foreground/10 transition-colors hover:bg-muted/50"
           >
             <div className="flex items-center gap-3">
               <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">

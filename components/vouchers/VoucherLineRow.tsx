@@ -42,7 +42,7 @@ export function VoucherLineRow({
   const amountField = side === "credit" ? "creditAmount" : "debitAmount";
 
   return (
-    <div className="grid grid-cols-[1fr_7rem_1fr_2rem] items-center gap-2 py-1">
+    <div className="grid grid-cols-[1fr_7rem_1fr_2rem] items-center gap-2 py-1.5 transition-colors hover:bg-muted/30">
       <Controller
         name={`lines.${index}.ledgerId`}
         control={control}

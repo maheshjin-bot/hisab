@@ -1,7 +1,8 @@
 "use client";
 
 import { use, useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Plus, Search, Upload } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,13 +21,18 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
   const { companyId } = use(params);
   const supabase = useSupabase();
   const queryClient = useQueryClient();
+  // Lets the Dashboard's "Add Ledger" / "CSV Import" quick actions land here
+  // pre-opened instead of just parking the user on the list — read once on
+  // arrival; deliberately not kept in sync afterwards, so closing either
+  // dialog doesn't need to also rewrite the URL.
+  const searchParams = useSearchParams();
 
   const [search, setSearch] = useState("");
   const [groupId, setGroupId] = useState<string>("all");
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: DEFAULT_PAGE_SIZE });
   const [sorting, setSorting] = useState<{ id: string; desc: boolean }[]>([]);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(() => searchParams.get("new") === "1");
+  const [importOpen, setImportOpen] = useState(() => searchParams.get("import") === "1");
 
   const { data: groups } = useLedgerGroupsQuery(companyId);
   const { data, isLoading, isFetching } = useLedgersQuery(companyId, {
@@ -46,9 +52,13 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Ledgers</h1>
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Parties & Ledgers</h1>
+          <p className="text-sm text-muted-foreground">Every account your books post to — customers, suppliers, cash, bank, and more.</p>
+        </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+            <Upload data-icon="inline-start" />
             Import CSV
           </Button>
           <CsvExportButton

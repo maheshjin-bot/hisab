@@ -26,6 +26,8 @@ export interface VoucherTypeConfig {
   cr: VoucherSideRule;
   /** Tally allows freely mixing Dr/Cr rows in any voucher type; off by default in v1. */
   allowMixedSides?: boolean;
+  /** Cash-flow direction for UI colour-coding (nav dots, activity feed badges) — not used in any ledger-posting logic. */
+  flow: "in" | "out" | "neutral";
 }
 
 export const VOUCHER_TYPE_CONFIG: Record<VoucherType, VoucherTypeConfig> = {
@@ -36,6 +38,7 @@ export const VOUCHER_TYPE_CONFIG: Record<VoucherType, VoucherTypeConfig> = {
     numberLabel: "Payment No.",
     narrationPlaceholder: "Being payment towards…",
     defaultMode: "single-party-grid",
+    flow: "out",
     cr: { label: "Account (Cash/Bank)", allowedRoles: ["cash_bank"], filterMode: "hard", defaultRowCount: 1, minRows: 1, isPrimaryParty: true },
     dr: { label: "Paid Towards", allowedRoles: "any", filterMode: "soft", defaultRowCount: 1, minRows: 1 },
   },
@@ -46,6 +49,7 @@ export const VOUCHER_TYPE_CONFIG: Record<VoucherType, VoucherTypeConfig> = {
     numberLabel: "Receipt No.",
     narrationPlaceholder: "Being receipt towards…",
     defaultMode: "single-party-grid",
+    flow: "in",
     dr: { label: "Account (Cash/Bank)", allowedRoles: ["cash_bank"], filterMode: "hard", defaultRowCount: 1, minRows: 1, isPrimaryParty: true },
     cr: { label: "Received From", allowedRoles: "any", filterMode: "soft", defaultRowCount: 1, minRows: 1 },
   },
@@ -56,6 +60,7 @@ export const VOUCHER_TYPE_CONFIG: Record<VoucherType, VoucherTypeConfig> = {
     numberLabel: "Voucher No.",
     narrationPlaceholder: "Being transfer between…",
     defaultMode: "full-grid",
+    flow: "neutral",
     dr: { label: "Account", allowedRoles: ["cash_bank"], filterMode: "hard", defaultRowCount: 1, minRows: 1 },
     cr: { label: "Account", allowedRoles: ["cash_bank"], filterMode: "hard", defaultRowCount: 1, minRows: 1 },
   },
@@ -66,6 +71,7 @@ export const VOUCHER_TYPE_CONFIG: Record<VoucherType, VoucherTypeConfig> = {
     numberLabel: "Voucher No.",
     narrationPlaceholder: "Being journal entry for…",
     defaultMode: "full-grid",
+    flow: "neutral",
     dr: { label: "Account (Dr)", allowedRoles: "any", filterMode: "soft", defaultRowCount: 2, minRows: 1 },
     cr: { label: "Account (Cr)", allowedRoles: "any", filterMode: "soft", defaultRowCount: 2, minRows: 1 },
   },
@@ -76,6 +82,7 @@ export const VOUCHER_TYPE_CONFIG: Record<VoucherType, VoucherTypeConfig> = {
     numberLabel: "Invoice No.",
     narrationPlaceholder: "Being sale of…",
     defaultMode: "single-party-grid",
+    flow: "in",
     dr: { label: "Party A/c Name", allowedRoles: ["debtor", "cash_bank"], filterMode: "hard", defaultRowCount: 1, minRows: 1, isPrimaryParty: true },
     cr: { label: "Sales Ledger", allowedRoles: ["income"], filterMode: "soft", defaultRowCount: 1, minRows: 1 },
   },
@@ -86,6 +93,7 @@ export const VOUCHER_TYPE_CONFIG: Record<VoucherType, VoucherTypeConfig> = {
     numberLabel: "Bill No.",
     narrationPlaceholder: "Being purchase of…",
     defaultMode: "single-party-grid",
+    flow: "out",
     cr: { label: "Party A/c Name", allowedRoles: ["creditor", "cash_bank"], filterMode: "hard", defaultRowCount: 1, minRows: 1, isPrimaryParty: true },
     dr: { label: "Purchase Ledger", allowedRoles: ["expense"], filterMode: "soft", defaultRowCount: 1, minRows: 1 },
   },

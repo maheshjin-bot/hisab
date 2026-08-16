@@ -12,7 +12,7 @@ import { formatCurrency } from "@/lib/utils/currency";
 
 function Section({ title, rows, total, totalLabel }: { title: string; rows: ProfitAndLossRow[]; total: number; totalLabel: string }) {
   return (
-    <div className="overflow-hidden rounded-xl border">
+    <div className="overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
       <div className="border-b bg-muted/40 px-3 py-2 text-sm font-medium">{title}</div>
       <table className="w-full text-sm">
         <tbody>
@@ -82,7 +82,12 @@ export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/re
             <Section title="Direct Expenses (incl. Purchases)" rows={directExpense} total={sum(directExpense)} totalLabel="Total" />
           </div>
 
-          <div className={cn("rounded-xl border p-4 text-center", grossProfit >= 0 ? "bg-success/5" : "bg-destructive/5")}>
+          <div
+            className={cn(
+              "rounded-xl p-4 text-center ring-1",
+              grossProfit >= 0 ? "bg-success/5 ring-success/20" : "bg-destructive/5 ring-destructive/20"
+            )}
+          >
             <p className="text-xs text-muted-foreground">{grossProfit >= 0 ? "Gross Profit" : "Gross Loss"}</p>
             <p className={cn("text-xl font-semibold tabular-nums", grossProfit >= 0 ? "text-success" : "text-destructive")}>
               {formatCurrency(Math.abs(grossProfit))}
@@ -94,7 +99,12 @@ export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/re
             <Section title="Indirect Expenses" rows={indirectExpense} total={sum(indirectExpense)} totalLabel="Total" />
           </div>
 
-          <div className={cn("rounded-xl border p-4 text-center", netProfit >= 0 ? "bg-success/5" : "bg-destructive/5")}>
+          <div
+            className={cn(
+              "rounded-xl p-4 text-center ring-1",
+              netProfit >= 0 ? "bg-success/5 ring-success/20" : "bg-destructive/5 ring-destructive/20"
+            )}
+          >
             <p className="text-xs text-muted-foreground">{netProfit >= 0 ? "Net Profit" : "Net Loss"}</p>
             <p className={cn("text-xl font-semibold tabular-nums", netProfit >= 0 ? "text-success" : "text-destructive")}>
               {formatCurrency(Math.abs(netProfit))}

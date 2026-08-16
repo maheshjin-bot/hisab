@@ -24,7 +24,7 @@ function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border">
+    <div className="overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
       <div className="border-b bg-muted/40 px-3 py-2 text-sm font-medium">{title}</div>
       <table className="w-full text-sm">
         <tbody>

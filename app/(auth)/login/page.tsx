@@ -56,7 +56,7 @@ export default function LoginPage() {
 
   if (checkEmail) {
     return (
-      <div className="rounded-xl border bg-card p-6 text-center text-sm">
+      <div className="rounded-2xl bg-card p-6 text-center text-sm shadow-sm ring-1 ring-foreground/10">
         <p className="font-medium">Check your inbox</p>
         <p className="mt-1 text-muted-foreground">We sent a confirmation link to {email}.</p>
       </div>
@@ -64,7 +64,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="rounded-xl border bg-card p-6">
+    <div className="rounded-2xl bg-card p-6 shadow-sm ring-1 ring-foreground/10">
       <Tabs value={mode} onValueChange={(v) => setMode(v as "login" | "signup")}>
         <TabsList className="mb-4 w-full">
           <TabsTrigger value="login" className="flex-1">Sign in</TabsTrigger>

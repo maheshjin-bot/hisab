@@ -2,7 +2,7 @@
 
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, DEFAULT_PAGE_SIZE } from "@/components/data-table/DataTable";
@@ -38,9 +38,13 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Vouchers</h1>
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Vouchers</h1>
+          <p className="text-sm text-muted-foreground">Every payment, receipt, sale, purchase, contra and journal entry.</p>
+        </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+            <Upload data-icon="inline-start" />
             Import CSV
           </Button>
           <CsvExportButton
