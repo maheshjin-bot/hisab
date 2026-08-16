@@ -1,6 +1,7 @@
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { CommandPalette } from "./CommandPalette";
+import { ShortcutsDialog } from "./ShortcutsDialog";
 
 export function AppShell({
   companyId,
@@ -19,6 +20,7 @@ export function AppShell({
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
       <CommandPalette companyId={companyId} />
+      <ShortcutsDialog />
     </div>
   );
 }

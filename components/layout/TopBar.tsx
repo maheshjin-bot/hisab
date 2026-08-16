@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, ChevronDown, LogOut, Plus, Search } from "lucide-react";
+import { ChevronDown, LogOut, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -13,12 +13,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverDescription, PopoverTrigger } from "@/components/ui/popover";
 import { useSupabase } from "@/hooks/useSupabase";
 import { useCommandPaletteStore } from "@/stores/useCommandPaletteStore";
 import { ThemeMenuItems } from "./ThemeMenuItems";
 import { MobileSidebar } from "./MobileSidebar";
 import { DensityMenuItems } from "./DensityMenuItems";
+import { NotificationsPopover } from "./NotificationsPopover";
 import { VOUCHER_TYPE_CONFIG, VOUCHER_TYPE_ORDER } from "@/lib/voucher/voucher-type-config";
 
 export function TopBar({ companyId, userEmail }: { companyId: string; userEmail: string | null }) {
@@ -74,17 +74,7 @@ export function TopBar({ companyId, userEmail }: { companyId: string; userEmail:
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Popover>
-          <PopoverTrigger render={<Button variant="ghost" size="icon-sm" />}>
-            <Bell className="size-4" />
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-72">
-            <PopoverHeader>
-              <PopoverTitle>Notifications</PopoverTitle>
-              <PopoverDescription>You&apos;re all caught up — nothing needs your attention.</PopoverDescription>
-            </PopoverHeader>
-          </PopoverContent>
-        </Popover>
+        <NotificationsPopover companyId={companyId} />
 
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="rounded-full" />}>

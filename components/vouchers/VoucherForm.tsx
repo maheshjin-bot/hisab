@@ -162,8 +162,24 @@ export function VoucherForm({
     }
   }
 
+  // Ctrl+Enter to save. Bound on the form rather than through
+  // useGlobalShortcuts because the grid's own Enter handling already runs on
+  // keydown inside these fields, and this needs to win over it — and because
+  // the shortcut should only exist while a voucher form is on screen.
+  function handleFormKeyDown(e: React.KeyboardEvent) {
+    if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isSubmitting) void handleSubmit(onSubmit)();
+  }
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" onFocus={() => setShortcutScope("grid")}>
+    <form
+      onSubmit={handleSubmit(onSubmit)}
+      onKeyDown={handleFormKeyDown}
+      className="space-y-4"
+      onFocus={() => setShortcutScope("grid")}
+    >
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Field>
           <FieldLabel htmlFor="voucher-date">Date</FieldLabel>
