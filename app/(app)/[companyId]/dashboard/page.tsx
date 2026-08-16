@@ -29,7 +29,7 @@ export default function DashboardPage({ params }: PageProps<"/[companyId]/dashbo
         <h1 className="text-lg font-semibold tracking-tight">Dashboard</h1>
         <div className="flex gap-1.5">
           {VOUCHER_TYPE_ORDER.slice(0, 3).map((type) => (
-            <Button key={type} variant="outline" size="sm" render={<Link href={`/${companyId}/vouchers/new/${type}`} />}>
+            <Button key={type} variant="outline" size="sm" nativeButton={false} render={<Link href={`/${companyId}/vouchers/new/${type}`} />}>
               <Plus data-icon="inline-start" />
               {VOUCHER_TYPE_CONFIG[type].label}
             </Button>

@@ -54,7 +54,7 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
             ]}
             fetchRows={async () => (await listVouchers(supabase, companyId, { page: 0, pageSize: 20000 })).rows}
           />
-          <Button size="sm" render={<Link href={`/${companyId}/vouchers/new/${VOUCHER_TYPE_ORDER[0]}`} />}>
+          <Button size="sm" nativeButton={false} render={<Link href={`/${companyId}/vouchers/new/${VOUCHER_TYPE_ORDER[0]}`} />}>
             <Plus data-icon="inline-start" />
             New voucher
           </Button>

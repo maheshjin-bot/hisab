@@ -3,6 +3,7 @@ export const queryKeys = {
   companies: () => ["companies"] as const,
   company: (companyId: string) => ["companies", companyId] as const,
   companyMembers: (companyId: string) => ["companies", companyId, "members"] as const,
+  companyInvites: (companyId: string) => ["companies", companyId, "invites"] as const,
 
   ledgerGroups: (companyId: string) => ["companies", companyId, "ledger-groups"] as const,
   ledgers: (companyId: string, params: unknown) => ["companies", companyId, "ledgers", params] as const,

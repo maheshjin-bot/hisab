@@ -136,3 +136,44 @@ export async function acceptCompanyInvite(supabase: SupabaseClient<Database>, to
   if (error) throw error;
   return data as string;
 }
+
+export async function updateMemberRole(supabase: SupabaseClient<Database>, memberId: string, role: CompanyRole): Promise<void> {
+  const { error } = await supabase.from("company_members").update({ role }).eq("id", memberId);
+  if (error) throw error;
+}
+
+/** Membership rows have no delete-by-self path in the UI — this is the admin "remove member" action; the DB refuses to remove the last active admin regardless. */
+export async function revokeMember(supabase: SupabaseClient<Database>, memberId: string): Promise<void> {
+  const { error } = await supabase.from("company_members").update({ status: "revoked" }).eq("id", memberId);
+  if (error) throw error;
+}
+
+export interface CompanyInviteRow {
+  id: string;
+  email: string;
+  role: CompanyRole;
+  status: "pending" | "accepted" | "revoked" | "expired";
+  expiresAt: string;
+}
+
+export async function listPendingInvites(supabase: SupabaseClient<Database>, companyId: string): Promise<CompanyInviteRow[]> {
+  const { data, error } = await supabase
+    .from("company_invites")
+    .select("id, email, role, status, expires_at")
+    .eq("company_id", companyId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    email: r.email,
+    role: r.role as CompanyRole,
+    status: r.status as CompanyInviteRow["status"],
+    expiresAt: r.expires_at,
+  }));
+}
+
+export async function revokeInvite(supabase: SupabaseClient<Database>, inviteId: string): Promise<void> {
+  const { error } = await supabase.from("company_invites").update({ status: "revoked" }).eq("id", inviteId);
+  if (error) throw error;
+}
