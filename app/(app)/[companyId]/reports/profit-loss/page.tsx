@@ -1,9 +1,9 @@
 "use client";
 
-import { use, useState } from "react";
+import { use } from "react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ReportDateRangeFilter, defaultDateRange } from "@/components/reports/ReportDateRangeFilter";
+import { ReportDateRangeFilter, useReportDateRange } from "@/components/reports/ReportDateRangeFilter";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
 import { PrintButton } from "@/components/reports/PrintButton";
 import { StatementFooter, StatementHeader } from "@/components/reports/StatementHeader";
@@ -45,7 +45,7 @@ function Section({ title, rows, total, totalLabel }: { title: string; rows: Prof
 export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/reports/profit-loss">) {
   const { companyId } = use(params);
   const supabase = useSupabase();
-  const [range, setRange] = useState(defaultDateRange());
+  const { range, setRange, financialYearStartMonth } = useReportDateRange(companyId);
   const { data, isLoading } = useProfitAndLossQuery(companyId, range.from, range.to);
 
   const rows = data ?? [];
@@ -84,7 +84,7 @@ export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/re
       </div>
 
       <div data-print-hide>
-        <ReportDateRangeFilter value={range} onChange={setRange} />
+        <ReportDateRangeFilter value={range} onChange={setRange} financialYearStartMonth={financialYearStartMonth} />
       </div>
 
       {isLoading ? (

@@ -10,7 +10,13 @@ export interface UseKeyboardGridOptions {
   rowIds: string[];
   columns: GridColumn[];
   minRows: number;
-  onAppendRow: () => string;
+  /**
+   * Appends a row. It doesn't return the new row's id because the caller
+   * can't know it: `field.id` is assigned by react-hook-form's useFieldArray
+   * during the append, and isn't visible until the next render. Focus lands
+   * on the last row once `rowIds` reflects it.
+   */
+  onAppendRow: () => void;
   onRemoveRow: (rowId: string) => void;
   isRowFilled: (rowId: string) => boolean;
 }
@@ -34,7 +40,9 @@ export function useKeyboardGrid({
   isRowFilled,
 }: UseKeyboardGridOptions) {
   const cellsRef = useRef(new Map<string, HTMLElement>());
-  const pendingFocusRef = useRef<{ rowId: string; columnKey: string } | null>(null);
+  // Only ever "the row that's about to appear at the end", so it holds the
+  // column and resolves the row from rowIds once it updates.
+  const pendingFocusRef = useRef<{ columnKey: string } | null>(null);
   const focusableColumns = columns.filter((c) => c.focusable);
 
   const registerCell = useCallback(
@@ -53,8 +61,9 @@ export function useKeyboardGrid({
   // Retries focusing a just-appended row once its DOM node exists.
   useEffect(() => {
     if (!pendingFocusRef.current) return;
-    const { rowId, columnKey } = pendingFocusRef.current;
-    if (cellsRef.current.has(cellKey(rowId, columnKey))) {
+    const { columnKey } = pendingFocusRef.current;
+    const rowId = rowIds[rowIds.length - 1];
+    if (rowId && cellsRef.current.has(cellKey(rowId, columnKey))) {
       focusCell(rowId, columnKey);
       pendingFocusRef.current = null;
     }
@@ -83,8 +92,8 @@ export function useKeyboardGrid({
 
       // Off the last cell of the last row: auto-append if this row looks filled.
       if (direction === 1 && nextRowIndex >= rowIds.length && isRowFilled(rowId)) {
-        const newRowId = onAppendRow();
-        pendingFocusRef.current = { rowId: newRowId, columnKey: focusableColumns[0].key };
+        onAppendRow();
+        pendingFocusRef.current = { columnKey: focusableColumns[0].key };
       }
     },
     [rowIds, focusableColumns, focusCell, isRowFilled, onAppendRow]

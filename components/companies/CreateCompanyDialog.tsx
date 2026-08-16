@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel, FieldError, FieldDescription } from "@/components/ui/field";
 import { useCreateCompanyMutation } from "@/hooks/useCompaniesQuery";
 import { useCompanyStore } from "@/stores/useCompanyStore";
+import { toUserMessage } from "@/lib/errors";
 
 const schema = z.object({
   name: z.string().trim().min(1, { error: "Company name is required" }),
@@ -54,7 +55,7 @@ export function CreateCompanyDialog({ open, onOpenChange }: { open: boolean; onO
       onOpenChange(false);
       router.push(`/${companyId}/dashboard`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not create company");
+      toast.error(toUserMessage(err, "Could not create company"));
     }
   }
 

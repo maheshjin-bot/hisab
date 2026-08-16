@@ -19,7 +19,7 @@ import { useCompanyRole } from "@/hooks/useCompaniesQuery";
 import { useSupabase } from "@/hooks/useSupabase";
 import { buildLedgerCsvImportConfig } from "@/lib/ledgers/ledger-csv-config";
 import { searchLedgers, type Ledger } from "@/lib/supabase/queries/ledgers";
-import { errorMessage } from "@/lib/utils/error-message";
+import { toUserMessage } from "@/lib/errors";
 
 export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers">) {
   const { companyId } = use(params);
@@ -54,8 +54,8 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
   });
 
   const importConfig = useMemo(
-    () => buildLedgerCsvImportConfig(supabase, companyId, (data?.rows ?? []).map((l) => l.name)),
-    [supabase, companyId, data?.rows]
+    () => buildLedgerCsvImportConfig(supabase, companyId),
+    [supabase, companyId]
   );
 
   const columns = useMemo(
@@ -178,7 +178,7 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
               input: { isActive: !togglingActive.isActive },
             });
           } catch (err) {
-            toast.error(errorMessage(err, "Could not update this ledger"));
+            toast.error(toUserMessage(err, "Could not update this ledger"));
             throw err;
           }
         }}

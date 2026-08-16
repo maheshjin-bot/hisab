@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { Fragment, use, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,10 +11,11 @@ import { useBalanceSheetQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getBalanceSheet, type BalanceSheetRow } from "@/lib/supabase/queries/reports";
 import { formatCurrency } from "@/lib/utils/currency";
+import { isoLocalDate } from "@/lib/utils/financial-year";
 import { asOfPeriod } from "@/lib/utils/statement-period";
 
 function isoToday() {
-  return new Date().toISOString().slice(0, 10);
+  return isoLocalDate(new Date());
 }
 
 function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]; total: number }) {
@@ -37,9 +38,9 @@ function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]
             </tr>
           )}
           {[...byGroup.entries()].map(([groupName, groupRows]) => (
-            <>
+            <Fragment key={groupName}>
               {groupRows.length > 1 && (
-                <tr key={`${groupName}-header`} className="border-t bg-muted/10">
+                <tr className="border-t bg-muted/10">
                   <td className="p-2 pl-3 text-xs font-medium text-muted-foreground" colSpan={2}>
                     {groupName}
                   </td>
@@ -53,7 +54,7 @@ function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]
                   <td className="p-2.5 pr-3 text-right tabular-nums">{formatCurrency(row.amount)}</td>
                 </tr>
               ))}
-            </>
+            </Fragment>
           ))}
         </tbody>
         <tfoot>

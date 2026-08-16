@@ -94,6 +94,25 @@ export interface SearchLedgersParams {
   sortDir?: "asc" | "desc";
 }
 
+/**
+ * Every ledger name in the company, for the CSV importer's duplicate check.
+ *
+ * Names only, and no pagination: the check has to see the whole company or it
+ * waves through a duplicate that the unique index then rejects mid-commit as
+ * a raw Postgres error.
+ */
+export async function getAllLedgerNames(
+  supabase: SupabaseClient<Database>,
+  companyId: string
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("ledgers")
+    .select("name")
+    .eq("company_id", companyId);
+  if (error) throw error;
+  return (data ?? []).map((r) => r.name);
+}
+
 /** Server-paginated + searched — the Ledger Manager's main query, safe at "possibly thousands of ledgers" scale. */
 export async function searchLedgers(
   supabase: SupabaseClient<Database>,
@@ -108,8 +127,22 @@ export async function searchLedgers(
   if (params.q) query = query.ilike("name", `%${params.q}%`);
   if (params.groupId) query = query.eq("group_id", params.groupId);
 
-  const sortColumn = params.sortBy === "group" ? "group_id" : "name";
-  query = query.order(sortColumn, { ascending: (params.sortDir ?? "asc") === "asc" });
+  // Sorting by "group" has to order on the joined group's name — group_id is
+  // a UUID, so ordering by it produces an arbitrary sequence that merely looks
+  // deterministic.
+  //
+  // The column is spelled "account_groups(name)", which is PostgREST's syntax
+  // for ordering parent rows by a to-one embedded column. Not `referencedTable`
+  // — that emits `account_groups.order=`, which orders rows *within* an
+  // embedded collection and leaves the parent ordering untouched, so it would
+  // have quietly sorted by ledger name instead.
+  const ascending = (params.sortDir ?? "asc") === "asc";
+  if (params.sortBy === "group") {
+    // Ledger name breaks ties so pagination stays stable within a group.
+    query = query.order("account_groups(name)", { ascending }).order("name", { ascending: true });
+  } else {
+    query = query.order("name", { ascending });
+  }
 
   const from = params.page * params.pageSize;
   const to = from + params.pageSize - 1;

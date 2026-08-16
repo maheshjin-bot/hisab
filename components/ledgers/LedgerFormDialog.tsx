@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Field, FieldGroup, FieldLabel, FieldError, FieldSet, FieldLegend } from "@/components/ui/field";
 import { useLedgerGroupsQuery, useCreateLedgerMutation, useUpdateLedgerMutation } from "@/hooks/useLedgersQuery";
 import type { Ledger } from "@/lib/supabase/queries/ledgers";
-import { errorMessage } from "@/lib/utils/error-message";
+import { toUserMessage } from "@/lib/errors";
 
 const schema = z.object({
   name: z.string().trim().min(1, { error: "Name is required" }),
@@ -96,7 +96,7 @@ export function LedgerFormDialog({
       }
       onOpenChange(false);
     } catch (err) {
-      toast.error(errorMessage(err, "Could not save ledger"));
+      toast.error(toUserMessage(err, "Could not save ledger"));
     }
   }
 

@@ -1,9 +1,9 @@
 "use client";
 
-import { use, useState } from "react";
+import { use } from "react";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ReportDateRangeFilter, defaultDateRange } from "@/components/reports/ReportDateRangeFilter";
+import { ReportDateRangeFilter, useReportDateRange } from "@/components/reports/ReportDateRangeFilter";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
 import { PrintButton } from "@/components/reports/PrintButton";
 import { StatementFooter, StatementHeader } from "@/components/reports/StatementHeader";
@@ -16,7 +16,7 @@ import { rangePeriod } from "@/lib/utils/statement-period";
 export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/daybook">) {
   const { companyId } = use(params);
   const supabase = useSupabase();
-  const [range, setRange] = useState(defaultDateRange());
+  const { range, setRange, financialYearStartMonth } = useReportDateRange(companyId);
   const { data, isLoading } = useDaybookQuery(companyId, range.from, range.to);
 
   return (
@@ -44,7 +44,7 @@ export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/
       </div>
 
       <div data-print-hide>
-        <ReportDateRangeFilter value={range} onChange={setRange} />
+        <ReportDateRangeFilter value={range} onChange={setRange} financialYearStartMonth={financialYearStartMonth} />
       </div>
 
       {isLoading ? (

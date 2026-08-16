@@ -5,6 +5,7 @@ import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { exportToCsv, type ExportColumnDef } from "@/lib/csv/export";
+import { toUserMessage } from "@/lib/errors";
 
 const DEFAULT_MAX_ROWS = 20000;
 
@@ -28,7 +29,7 @@ export function CsvExportButton<TRow>({ label = "Export CSV", filename, columns,
       }
       exportToCsv(rows.slice(0, maxRows), columns, filename);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Export failed");
+      toast.error(toUserMessage(err, "Export failed"));
     } finally {
       setPending(false);
     }

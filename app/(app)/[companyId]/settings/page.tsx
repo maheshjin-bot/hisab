@@ -22,6 +22,7 @@ import {
   useUpdateMemberRoleMutation,
 } from "@/hooks/useCompaniesQuery";
 import type { CompanyRole } from "@/lib/supabase/queries/companies";
+import { toUserMessage } from "@/lib/errors";
 
 const ROLE_LABEL: Record<CompanyRole, string> = { admin: "Admin", accountant: "Accountant", auditor: "Auditor" };
 
@@ -52,7 +53,7 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
       toast.success(`Invited ${inviteEmail}`);
       setInviteEmail("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not send invite");
+      toast.error(toUserMessage(err, "Could not send invite"));
     }
   }
 
@@ -60,7 +61,7 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
     try {
       await updateRole.mutateAsync({ memberId, role });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not update role");
+      toast.error(toUserMessage(err, "Could not update role"));
     }
   }
 
@@ -69,7 +70,7 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
       await revokeMember.mutateAsync(memberId);
       toast.success("Member removed");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not remove member — a company needs at least one admin");
+      toast.error(toUserMessage(err, "Could not remove member"));
     }
   }
 

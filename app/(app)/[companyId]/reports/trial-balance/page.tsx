@@ -10,10 +10,11 @@ import { useTrialBalanceQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getTrialBalance } from "@/lib/supabase/queries/reports";
 import { formatCurrency } from "@/lib/utils/currency";
+import { isoLocalDate } from "@/lib/utils/financial-year";
 import { asOfPeriod } from "@/lib/utils/statement-period";
 
 function isoToday() {
-  return new Date().toISOString().slice(0, 10);
+  return isoLocalDate(new Date());
 }
 
 export default function TrialBalancePage({ params }: PageProps<"/[companyId]/reports/trial-balance">) {

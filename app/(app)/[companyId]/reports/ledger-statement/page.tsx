@@ -2,7 +2,7 @@
 
 import { use, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ReportDateRangeFilter, defaultDateRange } from "@/components/reports/ReportDateRangeFilter";
+import { ReportDateRangeFilter, useReportDateRange } from "@/components/reports/ReportDateRangeFilter";
 import { LedgerCombobox } from "@/components/ledgers/LedgerCombobox";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
 import { PrintButton } from "@/components/reports/PrintButton";
@@ -19,7 +19,7 @@ const ANY_SIDE_RULE = { label: "Ledger", allowedRoles: "any" as const, filterMod
 export default function LedgerStatementPage({ params }: PageProps<"/[companyId]/reports/ledger-statement">) {
   const { companyId } = use(params);
   const supabase = useSupabase();
-  const [range, setRange] = useState(defaultDateRange());
+  const { range, setRange, financialYearStartMonth } = useReportDateRange(companyId);
   const [ledger, setLedger] = useState<LedgerSearchResult | null>(null);
 
   const { data, isLoading } = useLedgerStatementQuery(companyId, ledger?.id, range.from, range.to);
@@ -60,7 +60,7 @@ export default function LedgerStatementPage({ params }: PageProps<"/[companyId]/
         <div className="w-64">
           <LedgerCombobox companyId={companyId} value={ledger?.id ?? ""} displayName={ledger?.name} onSelect={setLedger} sideRule={ANY_SIDE_RULE} />
         </div>
-        <ReportDateRangeFilter value={range} onChange={setRange} />
+        <ReportDateRangeFilter value={range} onChange={setRange} financialYearStartMonth={financialYearStartMonth} />
       </div>
 
       {!ledger ? (

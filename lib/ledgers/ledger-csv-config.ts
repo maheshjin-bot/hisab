@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database.types";
 import type { CsvImportConfig, FileLevelIssue } from "@/lib/csv/types";
-import { bulkInsertLedgers, getAllLedgerGroups } from "@/lib/supabase/queries/ledgers";
+import { bulkInsertLedgers, getAllLedgerGroups, getAllLedgerNames } from "@/lib/supabase/queries/ledgers";
 import { sumPaise, toPaise } from "@/lib/utils/currency";
 
 export interface LedgerCsvRow {
@@ -46,8 +46,7 @@ function parseDrCr(raw: string): "debit" | "credit" {
 
 export function buildLedgerCsvImportConfig(
   supabase: SupabaseClient<Database>,
-  companyId: string,
-  existingLedgerNames: string[]
+  companyId: string
 ): CsvImportConfig<LedgerCsvRow, LedgerCsvParsed, LedgerImportContext> {
   return {
     entityName: "Ledger",
@@ -63,10 +62,16 @@ export function buildLedgerCsvImportConfig(
       { key: "notes", header: "Notes", sampleValue: "" },
     ],
     prepareContext: async () => {
-      const groups = await getAllLedgerGroups(supabase, companyId);
+      // Both fetched here rather than passed in from the page: the page only
+      // holds the current 25-row table page, so a name on page two used to
+      // pass validation and fail against the unique index mid-commit.
+      const [groups, names] = await Promise.all([
+        getAllLedgerGroups(supabase, companyId),
+        getAllLedgerNames(supabase, companyId),
+      ]);
       return {
         groupIdByNormalizedName: new Map(groups.map((g) => [normalize(g.name), g.id])),
-        existingNames: new Set(existingLedgerNames.map(normalize)),
+        existingNames: new Set(names.map(normalize)),
       };
     },
     transformRow: (raw, _i, ctx) => ({

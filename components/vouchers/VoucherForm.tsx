@@ -115,7 +115,6 @@ export function VoucherForm({
     minRows: gridRule.minRows,
     onAppendRow: () => {
       append(emptyLine());
-      return fields[fields.length]?.id ?? String(fields.length);
     },
     onRemoveRow: (rowId) => {
       const index = fields.findIndex((f) => f.id === rowId);
@@ -159,7 +158,7 @@ export function VoucherForm({
       }
       router.push(`/${companyId}/vouchers`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save voucher");
+      toast.error(toUserMessage(err, "Could not save voucher"));
     }
   }
 
@@ -256,6 +255,7 @@ export function VoucherForm({
 // Small inline field helpers kept local to this file since they're
 // single-use wrappers around Controller, not reused elsewhere.
 import { Controller, type Control } from "react-hook-form";
+import { toUserMessage } from "@/lib/errors";
 
 function SmartFieldDate({ control }: { control: Control<VoucherFormValues> }) {
   return (
