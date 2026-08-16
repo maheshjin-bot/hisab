@@ -5,6 +5,7 @@ import {
   flattenTree,
   validParents,
 } from "@/components/groups/group-tree";
+import { buildGroupFormSchema } from "@/components/groups/group-form-schema";
 import type { AccountGroup } from "@/lib/supabase/queries/ledgers";
 
 function group(
@@ -103,5 +104,33 @@ describe("validParents", () => {
 
     const liabilityIds = validParents(tree, groups, groups.find((g) => g.id === "cred")!).map((g) => g.id);
     expect(liabilityIds).toEqual(["cl"]);
+  });
+});
+
+describe("group form schema", () => {
+  const sub = buildGroupFormSchema(false);
+  const systemGroup = buildGroupFormSchema(true);
+
+  it("requires a parent for a sub-group", () => {
+    expect(sub.safeParse({ name: "GST Payable", parentGroupId: "", ledgerRole: "other" }).success).toBe(false);
+    expect(sub.safeParse({ name: "GST Payable", parentGroupId: "cl", ledgerRole: "other" }).success).toBe(true);
+  });
+
+  it("lets a system group save without one, since a root has no parent", () => {
+    // The regression: a system group resets parentGroupId to "" because it is
+    // null in the database, so an always-required schema made the eight
+    // primary groups impossible to rename — and reported the error against a
+    // field that is disabled.
+    const result = systemGroup.safeParse({ name: "Current Assets", parentGroupId: "", ledgerRole: "other" });
+    expect(result.success).toBe(true);
+  });
+
+  it("still requires a name either way", () => {
+    expect(sub.safeParse({ name: "  ", parentGroupId: "cl", ledgerRole: "other" }).success).toBe(false);
+    expect(systemGroup.safeParse({ name: "", parentGroupId: "", ledgerRole: "other" }).success).toBe(false);
+  });
+
+  it("rejects a ledger role that isn't one of the nine", () => {
+    expect(sub.safeParse({ name: "X", parentGroupId: "cl", ledgerRole: "not_a_role" }).success).toBe(false);
   });
 });

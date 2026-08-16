@@ -3,7 +3,6 @@
 import { useEffect, useMemo } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -24,16 +23,9 @@ import {
 import type { AccountGroup, LedgerRole } from "@/lib/supabase/queries/ledgers";
 import { toUserMessage } from "@/lib/errors";
 import { LEDGER_ROLE_LABEL, NATURE_LABEL, validParents, type GroupNode } from "./group-tree";
+import { buildGroupFormSchema, LEDGER_ROLES, type GroupFormValues } from "./group-form-schema";
 
-const LEDGER_ROLES = Object.keys(LEDGER_ROLE_LABEL) as LedgerRole[];
 
-const schema = z.object({
-  name: z.string().trim().min(1, { error: "Name is required" }),
-  parentGroupId: z.string().min(1, { error: "Every sub-group needs a parent" }),
-  ledgerRole: z.enum(LEDGER_ROLES as [LedgerRole, ...LedgerRole[]]),
-});
-
-type FormValues = z.infer<typeof schema>;
 
 export function GroupFormDialog({
   open,
@@ -68,7 +60,9 @@ export function GroupFormDialog({
     return [...allGroups].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
   }, [tree, allGroups, group]);
 
-  const { control, handleSubmit, reset, formState: { errors } } = useForm<FormValues>({
+  const schema = useMemo(() => buildGroupFormSchema(parentLocked), [parentLocked]);
+
+  const { control, handleSubmit, reset, formState: { errors } } = useForm<GroupFormValues>({
     resolver: zodResolver(schema),
     defaultValues: { name: "", parentGroupId: "", ledgerRole: "other" },
   });
@@ -85,7 +79,7 @@ export function GroupFormDialog({
   const selectedParentId = useWatch({ control, name: "parentGroupId" });
   const inheritedNature = allGroups.find((g) => g.id === selectedParentId)?.nature;
 
-  async function onSubmit(values: FormValues) {
+  async function onSubmit(values: GroupFormValues) {
     try {
       if (isEdit) {
         await updateGroup.mutateAsync({

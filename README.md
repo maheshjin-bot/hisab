@@ -25,8 +25,8 @@ npm install
 
 **2. Create a Supabase project and apply the migrations**
 
-Apply the nine files in `supabase/migrations/` in filename order. They are not
-idempotent and each depends on the last, so order matters.
+Apply the eleven files in `supabase/migrations/` in filename order. They are
+not idempotent and each depends on the last, so order matters.
 
 Using the Supabase CLI against a linked project:
 
@@ -47,6 +47,8 @@ Or paste each file into the SQL editor in the dashboard, oldest first:
 | `0007_import_staging_and_audit` | Import batches and the audit log |
 | `0008_advisor_fixes` | Fixes flagged by the Supabase advisors |
 | `0009_grant_app_private_to_authenticated` | Execute grants on the helper schema |
+| `0010_dashboard_summary` | `get_dashboard_summary()` — the dashboard in one query |
+| `0011_bulk_vouchers` | `create_vouchers_bulk()` — server-side CSV voucher import |
 
 **3. Configure environment variables**
 
@@ -84,7 +86,7 @@ than in the UI.
 | --- | --- |
 | `admin` | Everything: company settings, the lock date, members and invites, opening balances, account group changes |
 | `accountant` | Create and edit ledgers and vouchers, run and export every report. Cannot change opening balances, manage members, or post into a locked period |
-| `auditor` | Read-only across the whole company |
+| `auditor` | Read-only across the whole company, plus the change history at `/audit` — which admins can also see and accountants cannot |
 
 A company can never be left without an active admin — a trigger raises
 `Cannot remove the last active admin of a company` rather than allowing it.
@@ -104,11 +106,17 @@ Sundry Debtors, Loans & Advances. Under Current Liabilities: Sundry Creditors,
 Provisions, Outstanding Expenses. Under Fixed Assets: Plant & Machinery, Office
 Equipment, Furniture.
 
+The chart is not fixed. Account Groups (`/[companyId]/groups`) adds, renames
+and re-parents sub-groups; the eight system groups can be renamed but never
+moved or deleted, matching what the triggers enforce. A group's classification
+always follows its parent, so it is inherited rather than chosen.
+
 Every group carries a `ledger_role` (`cash_bank`, `debtor`, `creditor`,
 `expense`, `income`, `fixed_asset`, `capital`, `loan`, `other`). This is not
 decoration — it drives which ledgers appear in each voucher type's comboboxes.
 A new sub-group left on the default `other` will not show up in a Payment
-voucher's cash leg.
+voucher's cash leg, which is the single most common surprise when extending
+the chart.
 
 ## Vouchers and reports
 
@@ -120,7 +128,25 @@ Five reports, each backed by a `security invoker` SQL function: Daybook, Ledger
 Statement, Trial Balance, Profit & Loss, Balance Sheet.
 
 Financial years default to starting in April but are configurable per company
-via `financial_year_start_month`.
+via `financial_year_start_month`, and the report date presets follow it.
+
+Every report prints: `@media print` rules drop the app chrome and add a
+statement header with the company, period and currency, so a Balance Sheet
+comes out as a document rather than a screenshot. Page numbers come from the
+browser's own print footer — Chrome and Edge don't implement the `@page`
+margin boxes that would let the document supply them.
+
+## Change history
+
+Every change to vouchers, voucher lines, ledgers and members is recorded with
+full before/after snapshots by a database trigger, and shown at
+`/[companyId]/audit` for admins and auditors.
+
+One thing worth knowing when reading it: each created voucher is followed by
+an update that touches only `total_amount`. That is `check_voucher_balance()`
+writing the derived total, not a person editing. Those entries are shown —
+hiding rows from an audit log defeats the purpose — but labelled
+"Recalculated" so they don't read as edits.
 
 ## Project layout
 
@@ -128,22 +154,78 @@ via `financial_year_start_month`.
 app/(auth)/            Login and signup
 app/(app)/             Authenticated shell
   companies/           Company picker and creation
+  invite/[token]/      Redeems an invite link
   [companyId]/         Everything scoped to one company
-    dashboard/  ledgers/  vouchers/  reports/  settings/
+    dashboard/  ledgers/  groups/  vouchers/
+    reports/  audit/  settings/
 components/            UI, grouped by feature
 hooks/                 TanStack Query hooks — one per resource
 lib/supabase/queries/  All database access
 supabase/migrations/   Schema, in order
+supabase/tests/        What the database guarantees, as a SQL script
+tests/                 Vitest unit tests
+e2e/                   Playwright end-to-end flow
 ```
 
 ## Scripts
 
 ```bash
-npm run dev      # development server
-npm run build    # production build
-npm run lint     # eslint
-npx tsc --noEmit # typecheck
+npm run dev        # development server
+npm run build      # production build
+npm run lint       # eslint
+npm run typecheck  # tsc --noEmit
+npm test           # vitest, unit tests
+npm run test:e2e   # playwright, end-to-end (see below)
 ```
+
+## Tests
+
+Three layers, covering three different kinds of mistake.
+
+**Unit** (`npm test`) — the arithmetic and parsing that must never be wrong:
+paise sums, the per-type voucher schema, CSV three-stage validation,
+financial-year boundaries, and the account-group tree. No DOM, so the suite
+runs in well under a second and is safe to run on every save.
+
+**Database** (`supabase/tests/guarantees.sql`) — the promises that hold no
+matter what the client does: a voucher cannot be unbalanced or single-line,
+system account groups cannot be deleted or reclassified, a sub-group inherits
+its parent's nature, cycles are refused, and nothing can reference another
+company's rows. It builds its own fixtures and rolls back, so it is safe to
+run against a database with real data in it.
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/guarantees.sql
+```
+
+**End to end** (`npm run test:e2e`) — sign up, create a company, add ledgers,
+post one voucher of each type, and confirm the Trial Balance tallies. It runs
+against a production build, not `next dev`.
+
+It needs an account it can sign in with. If your Supabase project has strict
+email validation enabled, sign-up from a test will always be rejected — the
+validator checks deliverability, and every address a test can safely invent
+(a `.test` TLD, `example.com`) has no MX record. Create one confirmed account
+and point the suite at it:
+
+```bash
+E2E_EMAIL=you@example.org E2E_PASSWORD=... npm run test:e2e
+```
+
+Without that, the spec skips itself with the reason rather than failing, so
+CI stays honest on a checkout that isn't configured for it.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs route typegen, typecheck, lint, the unit
+tests and a production build on every push. Set
+`NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` as
+repository *variables* (Settings → Secrets and variables → Actions) — the
+build reads them at module scope, and falls back to placeholders that compile
+but point nowhere.
+
+The typegen step is not optional: Next generates route types rather than
+committing them, so `PageProps<"...">` will not resolve without it.
 
 ## A note on Next.js
 
