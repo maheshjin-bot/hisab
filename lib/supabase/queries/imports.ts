@@ -37,6 +37,11 @@ export async function recordImportBatch(
     status: "committed" | "failed";
   }
 ): Promise<void> {
+  // created_by has no database default — unlike vouchers, which get auth.uid()
+  // inside create_voucher — so without this every import would be recorded as
+  // having been run by nobody, which is most of what the record is for.
+  const { data: auth } = await supabase.auth.getUser();
+
   const { error } = await supabase.from("import_batches").insert({
     company_id: companyId,
     import_type: input.importType,
@@ -44,6 +49,7 @@ export async function recordImportBatch(
     row_count: input.rowCount,
     error_count: input.errorCount,
     status: input.status,
+    created_by: auth.user?.id ?? null,
     committed_at: input.status === "committed" ? new Date().toISOString() : null,
   });
 

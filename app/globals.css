@@ -112,8 +112,17 @@
   --card-foreground: oklch(0.968 0.007 247.896);
   --popover: oklch(0.208 0.042 265.755);
   --popover-foreground: oklch(0.968 0.007 247.896);
-  --primary: oklch(0.585 0.233 277.117);
+  /* Indigo has to do two jobs in dark mode that pull in opposite directions:
+     it is a button surface carrying near-white text, and it is link text
+     sitting on a dark card. At the original 0.585 both were short of AA —
+     white on the button measured 4.31:1 and a link on a card 3.90:1 — so the
+     two roles are split. This value is for surfaces. */
+  --primary: oklch(0.56 0.233 277.117);
   --primary-foreground: oklch(0.98 0.014 277);
+  /* And this one is for indigo used as text on a dark surface: 6.78:1 on a
+     card, 7.66:1 on the page. Chroma is eased as lightness rises so it still
+     reads as the same indigo rather than turning lilac. */
+  --primary-emphasis: oklch(0.72 0.17 277.117);
   --secondary: oklch(0.279 0.041 260.031);
   --secondary-foreground: oklch(0.968 0.007 247.896);
   --muted: oklch(0.279 0.041 260.031);
@@ -205,4 +214,22 @@
   [data-density="comfortable"] th[data-slot="table-head"] {
     height: 2.75rem;
   }
+}
+
+/*
+ * Indigo-as-text in dark mode.
+ *
+ * Deliberately not inside @layer: Tailwind's utilities layer comes last in
+ * the cascade, so a rule in @layer components would lose to `text-primary`
+ * no matter how specific it is. Unlayered rules outrank every layer, which
+ * is what makes this stick.
+ *
+ * Scoped to .dark because light mode is already fine (6.44:1 on a card) and
+ * the surface colour there is unchanged.
+ */
+.dark .text-primary,
+/* The hover variant is a different class name, so it needs naming too — an
+   attribute selector avoids escaping the colon. */
+.dark [class~="hover:text-primary"]:hover {
+  color: var(--primary-emphasis);
 }

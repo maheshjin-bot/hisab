@@ -1,4 +1,32 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+
+/**
+ * Next loads .env.local itself, but the Playwright process doesn't — and the
+ * spec's skip guard reads process.env, so without this the suite would skip
+ * itself on a machine that is perfectly well configured. Values already in
+ * the environment (CI) win.
+ */
+function loadEnvLocal() {
+  let contents: string;
+  try {
+    // Playwright loads this config as CommonJS, so import.meta is not
+    // available here; the config always sits at the project root.
+    contents = readFileSync(resolve(process.cwd(), ".env.local"), "utf8");
+  } catch {
+    return;
+  }
+  for (const line of contents.split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/i);
+    if (!match) continue;
+    const [, key, rawValue] = match;
+    if (process.env[key]) continue;
+    process.env[key] = rawValue.trim().replace(/^["']|["']$/g, "");
+  }
+}
+
+loadEnvLocal();
 
 /**
  * End-to-end coverage of the one flow that has to work: sign up, create a
