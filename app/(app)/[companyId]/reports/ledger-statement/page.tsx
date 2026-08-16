@@ -35,7 +35,7 @@ export default function LedgerStatementPage({ params }: PageProps<"/[companyId]/
       )}
 
       <div data-print-hide className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Ledger Statement</h1>
+        <h1 className="text-statement">Ledger Statement</h1>
         {ledger && (
           <div className="flex gap-2">
           <PrintButton />

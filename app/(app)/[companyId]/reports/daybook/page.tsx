@@ -24,7 +24,7 @@ export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/
       <StatementHeader companyId={companyId} title="Daybook" period={rangePeriod(range.from, range.to)} />
 
       <div data-print-hide className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Daybook</h1>
+        <h1 className="text-statement">Daybook</h1>
         <div className="flex gap-2">
         <PrintButton />
         <CsvExportButton

@@ -33,7 +33,7 @@ export default function TrialBalancePage({ params }: PageProps<"/[companyId]/rep
       <StatementHeader companyId={companyId} title="Trial Balance" period={asOfPeriod(asOfDate)} />
 
       <div data-print-hide className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Trial Balance</h1>
+        <h1 className="text-statement">Trial Balance</h1>
         <div className="flex gap-2">
         <PrintButton />
         <CsvExportButton

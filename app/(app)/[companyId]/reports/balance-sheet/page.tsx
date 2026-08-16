@@ -85,7 +85,7 @@ export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/rep
       <StatementHeader companyId={companyId} title="Balance Sheet" period={asOfPeriod(asOfDate)} />
 
       <div data-print-hide className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Balance Sheet</h1>
+        <h1 className="text-statement">Balance Sheet</h1>
         <div className="flex gap-2">
         <PrintButton />
         <CsvExportButton

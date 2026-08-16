@@ -142,12 +142,12 @@
     text-transform: uppercase;
   }
 
-  /* Financial statements have always been set with serif headings, and a
-     locally available serif gets that for nothing — no webfont to load, and
-     it never reaches the screen. */
+  /* The same serif the report titles use on screen, so the printed statement
+     and the page it came from are recognisably one document. Local fallbacks
+     stay in the stack in case the webfont hasn't loaded when print fires. */
   .statement-title {
     margin: 2pt 0 0;
-    font-family: "Iowan Old Style", Charter, Cambria, Georgia, serif;
+    font-family: var(--font-display), "Iowan Old Style", Charter, Georgia, serif;
     font-size: 17pt;
     font-weight: 600;
     letter-spacing: -0.01em;

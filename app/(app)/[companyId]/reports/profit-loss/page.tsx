@@ -67,7 +67,7 @@ export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/re
       />
 
       <div data-print-hide className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Trading & Profit and Loss Account</h1>
+        <h1 className="text-statement">Trading & Profit and Loss Account</h1>
         <div className="flex gap-2">
         <PrintButton />
         <CsvExportButton
