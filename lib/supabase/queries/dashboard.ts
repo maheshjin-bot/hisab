@@ -1,8 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { format, startOfMonth, subDays } from "date-fns";
 import type { Database } from "@/types/database.types";
-import { getAllLedgerGroups } from "./ledgers";
-import { getLedgerStatement, getTrialBalance, type TrialBalanceRow } from "./reports";
 
 export interface CashFlowSummary {
   cashInHand: number;
@@ -14,69 +11,41 @@ export interface CashFlowSummary {
 }
 
 /**
- * Composes the dashboard's cash-position tiles entirely from existing report
- * queries — no dedicated backend function. "Cash" vs "Bank" ledgers are
- * discovered via account_groups.ledger_role = 'cash_bank' (robust to a
- * company renaming its seeded "Cash-in-Hand"/"Bank Accounts" groups) and
- * bucketed by whether the group name reads as cash or as bank. Month
- * Inflow/Outflow is gross movement (every debit / every credit) on those
- * ledgers for the month to date, not net change, so money that went out and
- * came back both count — matching how a cash-flow tile should read.
+ * The dashboard's cash-position tiles, in one round trip.
+ *
+ * This used to be composed client-side from two full trial balances plus one
+ * get_ledger_statement per cash and bank ledger, so its cost grew with the
+ * number of bank accounts a company had. get_dashboard_summary() computes the
+ * same six figures in a single query; the definitions are unchanged —
+ * "Cash" vs "Bank" is still discovered through account_groups.ledger_role
+ * rather than group names, and Month Inflow/Outflow is still gross movement
+ * rather than net change.
  */
 export async function getCashFlowSummary(
   supabase: SupabaseClient<Database>,
   companyId: string,
   asOfDate: string
 ): Promise<CashFlowSummary> {
-  const asOf = new Date(`${asOfDate}T00:00:00`);
-  const monthStartStr = format(startOfMonth(asOf), "yyyy-MM-dd");
-  const prevMonthEndStr = format(subDays(startOfMonth(asOf), 1), "yyyy-MM-dd");
+  const { data, error } = await supabase
+    .rpc("get_dashboard_summary", { p_company_id: companyId, p_as_of_date: asOfDate })
+    .single();
+  if (error) throw error;
 
-  const [groups, trialBalanceNow, trialBalancePrev] = await Promise.all([
-    getAllLedgerGroups(supabase, companyId),
-    getTrialBalance(supabase, companyId, asOfDate),
-    getTrialBalance(supabase, companyId, prevMonthEndStr),
-  ]);
-
-  const cashBankGroupNames = new Set(groups.filter((g) => g.ledgerRole === "cash_bank").map((g) => g.name));
-  const isCashGroup = (name: string) => name.toLowerCase().includes("cash");
-
-  function bucket(rows: TrialBalanceRow[]) {
-    let cash = 0;
-    let bank = 0;
-    const ledgerIds: string[] = [];
-    for (const row of rows) {
-      if (!cashBankGroupNames.has(row.groupName)) continue;
-      ledgerIds.push(row.ledgerId);
-      const net = row.debitBalance - row.creditBalance;
-      if (isCashGroup(row.groupName)) cash += net;
-      else bank += net;
-    }
-    return { cash, bank, ledgerIds };
-  }
-
-  const now = bucket(trialBalanceNow);
-  const prev = bucket(trialBalancePrev);
-
-  const statements = await Promise.all(
-    now.ledgerIds.map((ledgerId) => getLedgerStatement(supabase, companyId, ledgerId, monthStartStr, asOfDate))
-  );
-
-  let monthInflow = 0;
-  let monthOutflow = 0;
-  for (const rows of statements) {
-    for (const row of rows) {
-      monthInflow += row.debitAmount ?? 0;
-      monthOutflow += row.creditAmount ?? 0;
-    }
-  }
+  const row = data as {
+    cash_in_hand: number | null;
+    cash_in_hand_change: number | null;
+    bank_balance: number | null;
+    bank_balance_change: number | null;
+    month_inflow: number | null;
+    month_outflow: number | null;
+  };
 
   return {
-    cashInHand: now.cash,
-    cashInHandChange: now.cash - prev.cash,
-    bankBalance: now.bank,
-    bankBalanceChange: now.bank - prev.bank,
-    monthInflow,
-    monthOutflow,
+    cashInHand: Number(row.cash_in_hand ?? 0),
+    cashInHandChange: Number(row.cash_in_hand_change ?? 0),
+    bankBalance: Number(row.bank_balance ?? 0),
+    bankBalanceChange: Number(row.bank_balance_change ?? 0),
+    monthInflow: Number(row.month_inflow ?? 0),
+    monthOutflow: Number(row.month_outflow ?? 0),
   };
 }

@@ -197,6 +197,16 @@ export interface VoucherCsvLine {
  * imported vouchers get identical double-entry guarantees for free. Errors
  * are per-voucher (a whole group either commits or doesn't), not per-row.
  */
+/**
+ * Creates every voucher in a validated CSV in one round trip.
+ *
+ * This used to loop create_voucher once per voucher group, so a
+ * 2,000-voucher file was 2,000 sequential requests. create_vouchers_bulk()
+ * does the loop server-side and returns one row per group, so partial
+ * failures are still reported per voucher rather than collapsing into
+ * "the import failed" — the progress contract the modal relies on is
+ * unchanged, it just advances in one step now.
+ */
 export async function bulkImportVouchers(
   supabase: SupabaseClient<Database>,
   companyId: string,
@@ -210,33 +220,46 @@ export async function bulkImportVouchers(
     else groups.set(row.groupId, [row]);
   }
 
+  const total = groups.size;
+  onProgress?.(0, total);
+
+  const payload = [...groups.entries()].map(([groupId, groupRows]) => ({
+    group_key: groupId,
+    voucher_type: groupRows[0].voucherType,
+    voucher_date: groupRows[0].date,
+    narration: groupRows[0].narration ?? null,
+    reference_number: null,
+    reference_date: null,
+    lines: groupRows.map((r, i) => ({
+      ledger_id: r.ledgerId,
+      debit_amount: r.drCr === "Dr" ? r.amount : 0,
+      credit_amount: r.drCr === "Cr" ? r.amount : 0,
+      narration: r.narration ?? null,
+      line_order: i,
+    })),
+  }));
+
+  const { data, error } = await supabase.rpc("create_vouchers_bulk", {
+    p_company_id: companyId,
+    p_groups: payload,
+  });
+  if (error) throw error;
+
+  const results = (data ?? []) as { group_key: string; voucher_id: string | null; error_message: string | null }[];
+
   let insertedCount = 0;
   const errors: { rowNumber: number; message: string }[] = [];
-  let done = 0;
-  const total = groups.size;
 
-  for (const [groupId, groupRows] of groups) {
-    try {
-      await createVoucher(supabase, {
-        companyId,
-        voucherType: groupRows[0].voucherType,
-        voucherDate: groupRows[0].date,
-        narration: groupRows[0].narration,
-        lines: groupRows.map((r, i) => ({
-          ledgerId: r.ledgerId,
-          debitAmount: r.drCr === "Dr" ? r.amount : 0,
-          creditAmount: r.drCr === "Cr" ? r.amount : 0,
-          narration: r.narration,
-          lineOrder: i,
-        })),
-      });
+  for (const result of results) {
+    const groupRows = groups.get(result.group_key) ?? [];
+    if (result.error_message) {
+      errors.push({ rowNumber: 0, message: `Voucher ${result.group_key}: ${result.error_message}` });
+    } else {
       insertedCount += groupRows.length;
-    } catch (err) {
-      errors.push({ rowNumber: 0, message: `Voucher ${groupId}: ${err instanceof Error ? err.message : String(err)}` });
     }
-    done++;
-    onProgress?.(done, total);
   }
+
+  onProgress?.(total, total);
 
   return { insertedCount, failedCount: errors.length, errors };
 }

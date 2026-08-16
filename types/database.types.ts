@@ -607,6 +607,14 @@ export type Database = {
         }
         Returns: string
       }
+      create_vouchers_bulk: {
+        Args: { p_company_id: string; p_groups: Json }
+        Returns: {
+          error_message: string
+          group_key: string
+          voucher_id: string
+        }[]
+      }
       get_balance_sheet: {
         Args: { p_as_of_date: string; p_company_id: string }
         Returns: {
@@ -616,6 +624,17 @@ export type Database = {
           ledger_name: string
           nature: string
           side: string
+        }[]
+      }
+      get_dashboard_summary: {
+        Args: { p_as_of_date: string; p_company_id: string }
+        Returns: {
+          bank_balance: number
+          bank_balance_change: number
+          cash_in_hand: number
+          cash_in_hand_change: number
+          month_inflow: number
+          month_outflow: number
         }[]
       }
       get_daybook: {
