@@ -154,12 +154,15 @@ export interface CompanyInviteRow {
   role: CompanyRole;
   status: "pending" | "accepted" | "revoked" | "expired";
   expiresAt: string;
+  /** Needed to build the shareable /invite/<token> link. Only admins can read
+   *  it — company_invites_select gates non-admins to their own invites. */
+  token: string;
 }
 
 export async function listPendingInvites(supabase: SupabaseClient<Database>, companyId: string): Promise<CompanyInviteRow[]> {
   const { data, error } = await supabase
     .from("company_invites")
-    .select("id, email, role, status, expires_at")
+    .select("id, email, role, status, expires_at, token")
     .eq("company_id", companyId)
     .eq("status", "pending")
     .order("created_at", { ascending: false });
@@ -170,6 +173,7 @@ export async function listPendingInvites(supabase: SupabaseClient<Database>, com
     role: r.role as CompanyRole,
     status: r.status as CompanyInviteRow["status"],
     expiresAt: r.expires_at,
+    token: r.token,
   }));
 }
 

@@ -7,8 +7,21 @@ import { type NextRequest, NextResponse } from "next/server";
  * auth on any route — route-level access control happens per-page by
  * checking the session and per-row via Postgres RLS.
  */
+/**
+ * Server Components can't read the current pathname, so the auth guard in
+ * app/(app)/layout.tsx has no way to know where a signed-out visitor was
+ * headed. Stamping it on the request here gives it one — which is what lets
+ * an invite link survive a trip through /login. Always `set`, never `append`:
+ * a client-supplied x-pathname must not be trusted.
+ */
+function nextWithPathname(request: NextRequest) {
+  const headers = new Headers(request.headers);
+  headers.set("x-pathname", request.nextUrl.pathname + request.nextUrl.search);
+  return NextResponse.next({ request: { headers } });
+}
+
 export async function proxy(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+  let supabaseResponse = nextWithPathname(request);
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,7 +35,9 @@ export async function proxy(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
-          supabaseResponse = NextResponse.next({ request });
+          // Re-derived after the cookie writes above so the refreshed session
+          // cookies are carried on the outgoing request headers.
+          supabaseResponse = nextWithPathname(request);
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           );

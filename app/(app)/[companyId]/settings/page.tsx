@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
+import { InviteLinkButton } from "@/components/settings/InviteLinkButton";
 import {
   useCompaniesQuery,
   useCompanyMembersQuery,
@@ -161,15 +162,23 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
         {invites && invites.length > 0 && (
           <div className="space-y-1 border-t pt-3">
             <p className="text-xs font-medium text-muted-foreground">Pending invites</p>
+            {isAdmin && (
+              <p className="pb-1 text-xs text-muted-foreground">
+                HISAB doesn&apos;t send email yet — copy each link and pass it on yourself.
+              </p>
+            )}
             {invites.map((inv) => (
               <div key={inv.id} className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">{inv.email}</span>
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary">{ROLE_LABEL[inv.role]}</Badge>
                   {isAdmin && (
-                    <Button variant="ghost" size="icon-sm" onClick={() => revokeInvite.mutate(inv.id)} className="text-muted-foreground">
-                      <X className="size-3.5" />
-                    </Button>
+                    <>
+                      <InviteLinkButton token={inv.token} email={inv.email} />
+                      <Button variant="ghost" size="icon-sm" onClick={() => revokeInvite.mutate(inv.id)} className="text-muted-foreground" title={`Revoke invite for ${inv.email}`} aria-label={`Revoke invite for ${inv.email}`}>
+                        <X className="size-3.5" />
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>

@@ -1,17 +1,32 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { safeReturnPath } from "@/lib/utils/return-path";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel, FieldError } from "@/components/ui/field";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSupabase } from "@/hooks/useSupabase";
 
+// useSearchParams below opts this subtree out of prerendering, so it needs a
+// Suspense boundary of its own rather than blocking the whole route.
 export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={<div className="h-96 rounded-2xl bg-card shadow-sm ring-1 ring-foreground/10" />}
+    >
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const supabase = useSupabase();
   const router = useRouter();
+  // Set when the visitor was sent here from a deep link — an invite, usually.
+  const destination = safeReturnPath(useSearchParams().get("next"));
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,7 +44,7 @@ export default function LoginPage() {
       if (mode === "login") {
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
         if (signInError) throw signInError;
-        router.push("/");
+        router.push(destination);
         router.refresh();
       } else {
         const { data, error: signUpError } = await supabase.auth.signUp({
