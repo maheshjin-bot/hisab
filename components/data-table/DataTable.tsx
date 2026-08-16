@@ -14,6 +14,7 @@ import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ChevronsUpDown } fro
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useUiPreferencesStore } from "@/stores/useUiPreferencesStore";
 import type { AppTableFeatures } from "./table-features";
 
 interface DataTableProps<TData extends RowData> {
@@ -59,11 +60,15 @@ export function DataTable<TData extends RowData>({
 
   const pageCount = table.getPageCount();
   const { pageIndex } = state.pagination;
+  // Persisted per browser; the CSS that reads it lives in globals.css.
+  const density = useUiPreferencesStore((s) => s.tableDensity);
 
   return (
     <div className="space-y-3">
       {toolbar}
-      <div className="overflow-hidden rounded-xl border">
+      {/* Registers are wide; scroll the table inside its own container so the
+          page body never scrolls sideways. */}
+      <div className="overflow-x-auto overflow-y-hidden rounded-xl border" data-density={density}>
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (

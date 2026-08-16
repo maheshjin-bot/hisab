@@ -86,7 +86,7 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
         {loadingCompany ? (
           <Skeleton className="h-24 w-full" />
         ) : (
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid gap-4 text-sm sm:grid-cols-2">
             <div>
               <p className="text-xs text-muted-foreground">Name</p>
               <p className="font-medium">{company?.name}</p>

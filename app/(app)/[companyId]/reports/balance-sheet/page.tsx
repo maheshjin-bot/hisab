@@ -110,7 +110,7 @@ export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/rep
         <Skeleton className="h-96 w-full" />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
             <Column title="Liabilities" rows={liabilities} total={totalLiabilities} />
             <Column title="Assets" rows={assets} total={totalAssets} />
           </div>

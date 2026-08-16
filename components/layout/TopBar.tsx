@@ -16,6 +16,9 @@ import {
 import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverDescription, PopoverTrigger } from "@/components/ui/popover";
 import { useSupabase } from "@/hooks/useSupabase";
 import { useCommandPaletteStore } from "@/stores/useCommandPaletteStore";
+import { ThemeMenuItems } from "./ThemeMenuItems";
+import { MobileSidebar } from "./MobileSidebar";
+import { DensityMenuItems } from "./DensityMenuItems";
 import { VOUCHER_TYPE_CONFIG, VOUCHER_TYPE_ORDER } from "@/lib/voucher/voucher-type-config";
 
 export function TopBar({ companyId, userEmail }: { companyId: string; userEmail: string | null }) {
@@ -33,6 +36,8 @@ export function TopBar({ companyId, userEmail }: { companyId: string; userEmail:
 
   return (
     <header data-print-hide className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur-sm">
+      <MobileSidebar companyId={companyId} />
+
       <button
         type="button"
         onClick={() => setPaletteOpen(true)}
@@ -89,6 +94,10 @@ export function TopBar({ companyId, userEmail }: { companyId: string; userEmail:
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {userEmail && <DropdownMenuLabel className="truncate font-normal text-muted-foreground">{userEmail}</DropdownMenuLabel>}
+            <DropdownMenuSeparator />
+            <ThemeMenuItems />
+            <DropdownMenuSeparator />
+            <DensityMenuItems />
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleSignOut}>
               <LogOut />

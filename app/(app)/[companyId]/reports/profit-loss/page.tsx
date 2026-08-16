@@ -91,7 +91,7 @@ export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/re
         <Skeleton className="h-96 w-full" />
       ) : (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
             <Section title="Direct Income (Sales)" rows={directIncome} total={sum(directIncome)} totalLabel="Total" />
             <Section title="Direct Expenses (incl. Purchases)" rows={directExpense} total={sum(directExpense)} totalLabel="Total" />
           </div>
@@ -108,7 +108,7 @@ export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/re
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
             <Section title="Indirect Income" rows={indirectIncome} total={sum(indirectIncome)} totalLabel="Total" />
             <Section title="Indirect Expenses" rows={indirectExpense} total={sum(indirectExpense)} totalLabel="Total" />
           </div>

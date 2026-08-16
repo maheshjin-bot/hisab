@@ -164,7 +164,7 @@ export function VoucherForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" onFocus={() => setShortcutScope("grid")}>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Field>
           <FieldLabel htmlFor="voucher-date">Date</FieldLabel>
           <SmartFieldDate control={control} />

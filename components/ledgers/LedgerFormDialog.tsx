@@ -142,7 +142,7 @@ export function LedgerFormDialog({
 
             <FieldSet>
               <FieldLegend variant="label">Opening balance</FieldLegend>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field>
                   <Controller
                     name="openingBalanceAmount"
@@ -180,7 +180,7 @@ export function LedgerFormDialog({
               {financialsLocked && <p className="text-xs text-muted-foreground">Only an admin can change the opening balance once set.</p>}
             </FieldSet>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="ledger-contact">Contact person</FieldLabel>
                 <Controller name="contactPerson" control={control} render={({ field }) => <Input id="ledger-contact" {...field} />} />

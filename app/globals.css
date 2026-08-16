@@ -191,3 +191,18 @@
     text-transform: uppercase;
   }
 }
+
+@layer components {
+  /*
+   * Table density. "compact" is the app's existing spacing and stays the
+   * default, so turning the preference on only ever adds an option rather
+   * than changing what everyone already sees.
+   */
+  [data-density="comfortable"] td[data-slot="table-cell"] {
+    padding-block: 0.875rem;
+  }
+
+  [data-density="comfortable"] th[data-slot="table-head"] {
+    height: 2.75rem;
+  }
+}

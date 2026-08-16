@@ -50,7 +50,7 @@ export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/
       {isLoading ? (
         <Skeleton className="h-96 w-full" />
       ) : (
-        <div className="overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
+        <div className="overflow-x-auto rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-xs font-medium tracking-wide text-muted-foreground uppercase">
               <tr>
