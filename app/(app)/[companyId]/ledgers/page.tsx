@@ -185,6 +185,7 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
       />
       <CsvImportModal
         open={importOpen}
+        companyId={companyId}
         onOpenChange={setImportOpen}
         config={importConfig}
         onImportComplete={() => queryClient.invalidateQueries({ queryKey: ["companies", companyId, "ledgers"] })}

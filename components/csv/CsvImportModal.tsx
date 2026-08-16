@@ -20,6 +20,8 @@ import { parseCsvFile } from "@/lib/csv/parse";
 import { buildImportPreview } from "@/lib/csv/validate";
 import { downloadSampleCsv } from "@/lib/csv/template";
 import type { CommitResult, CsvImportConfig, CsvImportPreview } from "@/lib/csv/types";
+import { useSupabase } from "@/hooks/useSupabase";
+import { recordImportBatch } from "@/lib/supabase/queries/imports";
 
 type State =
   | { step: "select" }
@@ -60,6 +62,7 @@ function reducer(_state: State, action: Action): State {
 export interface CsvImportModalProps<TRow, TParsed, TContext = void> {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  companyId: string;
   config: CsvImportConfig<TRow, TParsed, TContext>;
   onImportComplete?: (result: CommitResult) => void;
 }
@@ -69,14 +72,20 @@ const PREVIEW_ROW_LIMIT = 500;
 export function CsvImportModal<TRow, TParsed, TContext = void>({
   open,
   onOpenChange,
+  companyId,
   config,
   onImportComplete,
 }: CsvImportModalProps<TRow, TParsed, TContext>) {
+  const supabase = useSupabase();
   const [state, dispatch] = useReducer(reducer, { step: "select" });
   const contextRef = useRef<TContext | undefined>(undefined);
+  // Kept for the import_batches row, which is written after the commit — by
+  // which point the File object is long out of scope.
+  const fileNameRef = useRef<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
   async function handleFileSelected(file: File) {
+    fileNameRef.current = file.name;
     dispatch({ type: "PARSING" });
     try {
       const { rows } = await parseCsvFile(file);
@@ -96,9 +105,25 @@ export function CsvImportModal<TRow, TParsed, TContext = void>({
       const ctx = contextRef.current ?? (config.prepareContext ? await config.prepareContext() : (undefined as TContext));
       const result = await config.onCommit(validRows, ctx, (done) => dispatch({ type: "COMMIT_PROGRESS", done }));
       dispatch({ type: "COMMIT_DONE", result });
+      await recordImportBatch(supabase, companyId, {
+        importType: config.importType,
+        fileName: fileNameRef.current,
+        rowCount: validRows.length,
+        errorCount: result.failedCount,
+        status: "committed",
+      });
       onImportComplete?.(result);
     } catch (err) {
       dispatch({ type: "FAILED", message: err instanceof Error ? err.message : "Import failed" });
+      // A failed import is worth a row too — otherwise the only imports on
+      // record are the ones that went fine.
+      await recordImportBatch(supabase, companyId, {
+        importType: config.importType,
+        fileName: fileNameRef.current,
+        rowCount: validRows.length,
+        errorCount: validRows.length,
+        status: "failed",
+      });
     }
   }
 

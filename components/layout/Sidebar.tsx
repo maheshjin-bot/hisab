@@ -12,6 +12,7 @@ import {
   Scale,
   TrendingUp,
   Landmark,
+  History,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
@@ -175,7 +176,12 @@ export function SidebarNav({
         </div>
       </nav>
 
-      <div className={cn("border-t border-sidebar-border p-3", collapsed && "px-2")}>
+      <div className={cn("space-y-0.5 border-t border-sidebar-border p-3", collapsed && "px-2")}>
+        <NavLink
+          item={{ href: `/${companyId}/audit`, label: "History", icon: History }}
+          collapsed={collapsed}
+          onNavigate={onNavigate}
+        />
         <NavLink
           item={{ href: `/${companyId}/settings`, label: "Settings", icon: Settings }}
           collapsed={collapsed}

@@ -5,6 +5,7 @@
  * lib/voucher/voucher-csv-config.ts for concrete instances.
  */
 import type { z } from "zod";
+import type { ImportType } from "@/lib/supabase/queries/imports";
 
 /** A single CSV row exactly as PapaParse hands it back (header mode: string values only). */
 export type RawCsvRow = Record<string, string>;
@@ -58,6 +59,8 @@ export interface CommitResult {
 export interface CsvImportConfig<TRow, TParsed, TContext = void> {
   /** Used in UI copy: "3 Ledgers imported", "Download Ledger template". */
   entityName: string;
+  /** Which import_batches.import_type this run is recorded under. */
+  importType: ImportType;
   columns: CsvColumnDef<TRow>[];
   /** Runs once before validating any row — e.g. fetch the existing group-name -> id index. */
   prepareContext?: () => Promise<TContext>;

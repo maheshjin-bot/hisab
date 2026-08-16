@@ -57,6 +57,7 @@ export function buildVoucherCsvImportConfig(
 ): CsvImportConfig<VoucherCsvRow, VoucherCsvParsed, VoucherImportContext> {
   return {
     entityName: "Voucher line",
+    importType: "vouchers",
     columns: [
       { key: "groupId", header: "Voucher Ref", required: true, sampleValue: "PMT-0001" },
       { key: "date", header: "Date", required: true, sampleValue: "01/04/2026" },

@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   BookText,
   FolderTree,
+  History,
   Receipt,
   Settings,
   Building2,
@@ -145,6 +146,10 @@ export function CommandPalette({ companyId }: { companyId: string }) {
           <CommandItem value="balance sheet report" onSelect={() => go(`/${companyId}/reports/balance-sheet`)}>
             <Landmark />
             Balance Sheet
+          </CommandItem>
+          <CommandItem value="history audit log changes" onSelect={() => go(`/${companyId}/audit`)}>
+            <History />
+            History
           </CommandItem>
           <CommandItem value="settings company members" onSelect={() => go(`/${companyId}/settings`)}>
             <Settings />

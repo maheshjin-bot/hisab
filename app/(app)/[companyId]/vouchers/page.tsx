@@ -134,6 +134,7 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
 
       <CsvImportModal
         open={importOpen}
+        companyId={companyId}
         onOpenChange={setImportOpen}
         config={importConfig}
         onImportComplete={() => queryClient.invalidateQueries({ queryKey: ["companies", companyId, "vouchers"] })}

@@ -50,6 +50,7 @@ export function buildLedgerCsvImportConfig(
 ): CsvImportConfig<LedgerCsvRow, LedgerCsvParsed, LedgerImportContext> {
   return {
     entityName: "Ledger",
+    importType: "ledgers",
     columns: [
       { key: "name", header: "Ledger Name", required: true, sampleValue: "Axis Bank" },
       { key: "groupName", header: "Group", required: true, sampleValue: "Bank Accounts" },
