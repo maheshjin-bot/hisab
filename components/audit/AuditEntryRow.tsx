@@ -14,7 +14,9 @@ const TABLE_LABEL: Record<string, string> = {
   vouchers: "Voucher",
   voucher_entries: "Voucher line",
   ledgers: "Ledger",
+  account_groups: "Account group",
   company_members: "Member",
+  companies: "Company settings",
 };
 
 /**

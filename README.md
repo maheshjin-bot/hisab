@@ -166,15 +166,43 @@ companies.
 
 ## Change history
 
-Every change to vouchers, voucher lines, ledgers and members is recorded with
-full before/after snapshots by a database trigger, and shown at
-`/[companyId]/audit` for admins and auditors.
+Every change to vouchers, voucher lines, ledgers, account groups, members and
+company settings is recorded with full before/after snapshots by a database
+trigger, and shown at `/[companyId]/audit` for admins and auditors.
 
 One thing worth knowing when reading it: each created voucher is followed by
 an update that touches only `total_amount`. That is `check_voucher_balance()`
 writing the derived total, not a person editing. Those entries are shown —
 hiding rows from an audit log defeats the purpose — but labelled
 "Recalculated" so they don't read as edits.
+
+### Undoing recent changes
+
+Admins get an **Undo recent changes** panel on that page: pick *last hour*,
+*24 hours*, *3 days*, *7 days*, or a date, see exactly what would be rolled
+back ("6 ledgers created, 12 voucher lines created…"), and confirm by typing
+`UNDO`.
+
+It rewinds vouchers, voucher lines, ledgers and account groups. Members and
+company settings are deliberately left alone — silently reinstating a removed
+member or reopening a locked period is a different decision with different
+consequences.
+
+Two properties worth relying on:
+
+- **It's a tail, not a window.** You can undo *since* a point, never *between*
+  two dates. Undoing a slice from the middle of a history is incoherent: a
+  voucher created inside the window and edited after it would have its
+  creation undone while the edit survives.
+- **It's idempotent.** Running the same undo twice leaves the same result —
+  the second run re-asserts the old values rather than unwinding the first.
+  Entries written by an undo are flagged and skipped by later ones.
+
+The whole undo is one transaction ending in `set constraints all immediate`,
+so an undo that would leave a voucher unbalanced fails and rolls back rather
+than corrupting the books. There is no one-click redo, so take a backup first
+if you're unsure.
+
 
 ## Project layout
 

@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { AuditEntryRow } from "@/components/audit/AuditEntryRow";
+import { UndoRecentChanges } from "@/components/audit/UndoRecentChanges";
 import { useAuditLogQuery } from "@/hooks/useAuditQuery";
 import { useCompanyRole } from "@/hooks/useCompaniesQuery";
 import { AUDITED_TABLES, type AuditAction, type AuditedTable } from "@/lib/supabase/queries/audit";
@@ -18,7 +19,9 @@ const TABLE_LABEL: Record<AuditedTable, string> = {
   vouchers: "Vouchers",
   voucher_entries: "Voucher lines",
   ledgers: "Ledgers",
+  account_groups: "Account groups",
   company_members: "Members",
+  companies: "Company settings",
 };
 
 const ACTIONS: AuditAction[] = ["INSERT", "UPDATE", "DELETE"];
@@ -74,6 +77,8 @@ export default function AuditPage({ params }: PageProps<"/[companyId]/audit">) {
           Every change to vouchers, lines, ledgers and members — who, what and when.
         </p>
       </div>
+
+      {role === "admin" && <UndoRecentChanges companyId={companyId} />}
 
       <div className="flex flex-wrap items-center gap-2">
         <Select value={tableName} onValueChange={(v) => { setTableName(v ?? "all"); setPage(0); }}>

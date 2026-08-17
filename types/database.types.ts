@@ -694,9 +694,23 @@ export type Database = {
           nature: string
         }[]
       }
+      preview_revert_since: {
+        Args: { p_company_id: string; p_since: string }
+        Returns: {
+          action: string
+          earliest: string
+          entries: number
+          latest: string
+          table_name: string
+        }[]
+      }
       restore_company_backup: {
         Args: { p_mode?: string; p_payload: Json; p_target_company_id?: string }
         Returns: string
+      }
+      revert_company_changes_since: {
+        Args: { p_company_id: string; p_since: string }
+        Returns: number
       }
       update_voucher: {
         Args: {

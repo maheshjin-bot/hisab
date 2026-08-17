@@ -1,8 +1,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database.types";
 
-/** The four tables that carry an audit trigger (0007_import_staging_and_audit). */
-export const AUDITED_TABLES = ["vouchers", "voucher_entries", "ledgers", "company_members"] as const;
+/**
+ * Every table that carries an audit trigger. The first four came with
+ * 0007_import_staging_and_audit; account_groups and companies were added in
+ * 0014, which closed a gap where chart-of-accounts edits and lock-date
+ * changes left no trace at all.
+ */
+export const AUDITED_TABLES = [
+  "vouchers",
+  "voucher_entries",
+  "ledgers",
+  "account_groups",
+  "company_members",
+  "companies",
+] as const;
 export type AuditedTable = (typeof AUDITED_TABLES)[number];
 
 export type AuditAction = "INSERT" | "UPDATE" | "DELETE";

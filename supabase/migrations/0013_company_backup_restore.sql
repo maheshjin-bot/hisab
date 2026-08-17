@@ -109,7 +109,9 @@ begin
     if p_target_company_id is null then
       raise exception 'Overwriting needs a company to overwrite';
     end if;
-    if not app_private.is_company_admin(p_target_company_id) then
+    -- `is not true`, not `not ...`: a NULL from the permission helper would
+    -- make `not NULL` -> NULL, skip the raise, and let a non-member through.
+    if app_private.is_company_admin(p_target_company_id) is not true then
       raise exception 'Only an admin can replace a company from a backup';
     end if;
     v_company := p_target_company_id;
