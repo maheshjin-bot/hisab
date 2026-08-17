@@ -15,6 +15,13 @@ export interface BackupSummary {
   ledgers: number;
   vouchers: number;
   voucherEntries: number;
+  /**
+   * Zero for a file written before invoicing existed — those simply have no
+   * `invoice_lines` key, which is why the restore coalesces the whole array
+   * away rather than assuming it. Counted here so a backup that does contain
+   * itemised invoices doesn't look like it lost them.
+   */
+  invoiceLines: number;
 }
 
 /**
@@ -73,6 +80,7 @@ export function summariseBackup(payload: unknown): BackupSummary {
     ledgers: count("ledgers"),
     vouchers: count("vouchers"),
     voucherEntries: count("voucher_entries"),
+    invoiceLines: count("invoice_lines"),
   };
 }
 

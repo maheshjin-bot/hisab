@@ -11,6 +11,14 @@ export interface Company {
   bookBeginningDate: string;
   lockDate: string | null;
   isActive: boolean;
+  /**
+   * The letterhead. Nullable, because the companies that existed before
+   * invoicing have none of it and must keep saving without it — an invoice
+   * simply prints a thinner masthead until someone fills them in.
+   */
+  address: string | null;
+  phone: string | null;
+  email: string | null;
 }
 
 export interface CompanyMembership extends Company {
@@ -26,6 +34,9 @@ function mapCompany(row: Database["public"]["Tables"]["companies"]["Row"]): Comp
     bookBeginningDate: row.book_beginning_date,
     lockDate: row.lock_date,
     isActive: row.is_active,
+    address: row.address,
+    phone: row.phone,
+    email: row.email,
   };
 }
 
@@ -66,6 +77,36 @@ export async function createCompany(supabase: SupabaseClient<Database>, input: C
   });
   if (error) throw error;
   return data as string;
+}
+
+/**
+ * The address block a printed invoice puts at the top.
+ *
+ * A blank field is stored as NULL rather than "", so the invoice masthead can
+ * omit the line entirely instead of printing an empty one — and because
+ * companies_email_check rejects "" outright.
+ */
+export interface CompanyDetailsInput {
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+}
+
+export async function updateCompanyDetails(
+  supabase: SupabaseClient<Database>,
+  companyId: string,
+  input: CompanyDetailsInput
+): Promise<void> {
+  const blankToNull = (v: string | null) => (v && v.trim() ? v.trim() : null);
+  const { error } = await supabase
+    .from("companies")
+    .update({
+      address: blankToNull(input.address),
+      phone: blankToNull(input.phone),
+      email: blankToNull(input.email),
+    })
+    .eq("id", companyId);
+  if (error) throw error;
 }
 
 export async function updateCompanyLockDate(

@@ -11,6 +11,31 @@ export interface VoucherLineInput {
   lineOrder?: number;
 }
 
+/**
+ * One row of an itemised sales or purchase invoice.
+ *
+ * There is no `lineAmount`: `invoice_lines.line_amount` is
+ * `generated always as (round(quantity * rate, 2) - discount_amount) stored`,
+ * so supplying one is not merely redundant, it is rejected by Postgres. The
+ * form previews the figure (see lib/voucher/invoice-schema.ts) and reads the
+ * real one back after saving.
+ */
+export interface InvoiceLineInput {
+  description: string;
+  revenueLedgerId: string;
+  quantity: number;
+  unit?: string | null;
+  rate: number;
+  discountAmount: number;
+  lineOrder?: number;
+}
+
+/** The party is debited on a sale and credited on a purchase, for the whole invoice. */
+export interface InvoiceInput {
+  partyLedgerId: string;
+  lines: InvoiceLineInput[];
+}
+
 export interface VoucherFormInput {
   companyId: string;
   voucherType: VoucherType;
@@ -19,6 +44,13 @@ export interface VoucherFormInput {
   referenceNumber?: string;
   referenceDate?: string;
   lines: VoucherLineInput[];
+  /**
+   * When present the voucher is posted from these instead of `lines`, which
+   * must then be empty — create_voucher/update_voucher refuse a payload
+   * carrying both, since that would be asking the database which of the two
+   * the books should believe.
+   */
+  invoice?: InvoiceInput;
 }
 
 export interface VoucherListItem {
@@ -38,6 +70,35 @@ function toRpcLines(lines: VoucherLineInput[]) {
     narration: l.narration ?? null,
     line_order: l.lineOrder ?? i,
   }));
+}
+
+/**
+ * Builds the `p_invoice` payload.
+ *
+ * Two things this deliberately does not do. It never emits `line_amount` —
+ * that column is generated, and a client-computed money figure is precisely
+ * what migration 0021 exists to keep out of the books. And it doesn't round
+ * `quantity` or `rate`: they go over as typed and Postgres settles them into
+ * numeric(18,3) and numeric(18,4) exactly, which is a better rounding than
+ * anything this can do to a value that is already a binary float.
+ *
+ * A blank unit becomes null rather than "": "1 nos" of consulting is noise on
+ * a printed invoice, and the column's check constraint rejects a blank string
+ * anyway.
+ */
+export function toRpcInvoice(invoice: InvoiceInput) {
+  return {
+    party_ledger_id: invoice.partyLedgerId,
+    lines: invoice.lines.map((l, i) => ({
+      line_order: l.lineOrder ?? i,
+      description: l.description.trim(),
+      revenue_ledger_id: l.revenueLedgerId,
+      quantity: l.quantity,
+      unit: l.unit?.trim() ? l.unit.trim() : null,
+      rate: l.rate,
+      discount_amount: l.discountAmount,
+    })),
+  };
 }
 
 /**
@@ -67,13 +128,23 @@ export async function createVoucher(supabase: SupabaseClient<Database>, input: V
     p_narration: nullable(input.narration),
     p_reference_number: nullable(input.referenceNumber),
     p_reference_date: nullable(input.referenceDate),
-    p_lines: toRpcLines(input.lines),
+    // One write path, not two: apply_invoice() raises if both arrive.
+    p_lines: input.invoice ? [] : toRpcLines(input.lines),
+    p_invoice: input.invoice ? toRpcInvoice(input.invoice) : null,
   });
   if (error) throw error;
   return data as string;
 }
 
-/** Replaces date/narration/reference + the full line set atomically. voucher_type is immutable post-creation. */
+/**
+ * Replaces date/narration/reference + the full line set atomically.
+ * voucher_type is immutable post-creation.
+ *
+ * `update_voucher` refuses a plain-lines save of a voucher that already has
+ * invoice lines, rather than silently discarding its descriptions, quantities
+ * and rates — so an invoice must always be saved back through `input.invoice`.
+ * A voucher stops being an invoice only by being deleted and re-entered.
+ */
 export async function updateVoucher(
   supabase: SupabaseClient<Database>,
   voucherId: string,
@@ -85,7 +156,8 @@ export async function updateVoucher(
     p_narration: nullable(input.narration),
     p_reference_number: nullable(input.referenceNumber),
     p_reference_date: nullable(input.referenceDate),
-    p_lines: toRpcLines(input.lines),
+    p_lines: input.invoice ? [] : toRpcLines(input.lines),
+    p_invoice: input.invoice ? toRpcInvoice(input.invoice) : null,
   });
   if (error) throw error;
 }
@@ -141,8 +213,24 @@ export async function listVouchers(
   };
 }
 
+/** An invoice line as stored, including the amount the database settled for it. */
+export interface VoucherInvoiceLine {
+  id: string;
+  description: string;
+  revenueLedgerId: string;
+  revenueLedgerName: string;
+  quantity: number;
+  unit: string | null;
+  rate: number;
+  discountAmount: number;
+  /** Read back from the generated column — never recomputed here. */
+  lineAmount: number;
+  lineOrder: number;
+}
+
 export interface VoucherWithLines {
   id: string;
+  companyId: string;
   voucherType: VoucherType;
   voucherNumber: string;
   voucherDate: string;
@@ -150,6 +238,26 @@ export interface VoucherWithLines {
   referenceNumber: string | null;
   referenceDate: string | null;
   lines: (VoucherLineInput & { id: string; ledgerName: string })[];
+  /**
+   * Who the invoice is made out to — the customer debited on a sale, the
+   * supplier credited on a bill — read from `vouchers.party_ledger_id`.
+   *
+   * Null for journals and contras, which have no counterparty, and for every
+   * voucher entered before invoicing existed. That is permanent, not a gap
+   * waiting to be filled: a voucher with no invoice lines has no party, and
+   * migration 0022's trigger requires one only of vouchers that do.
+   */
+  partyLedgerId: string | null;
+  /** Display only, for the combobox — resolved from the postings, never authoritative. */
+  partyLedgerName: string | null;
+  /**
+   * Empty for every voucher entered before invoicing existed, and for every
+   * receipt, payment, contra and journal — permanently. A voucher with no
+   * invoice lines is a valid voucher; this array being empty is what the form
+   * reads to decide whether it is looking at an invoice or at plain Dr/Cr
+   * lines.
+   */
+  invoiceLines: VoucherInvoiceLine[];
 }
 
 export async function getVoucherById(supabase: SupabaseClient<Database>, voucherId: string): Promise<VoucherWithLines> {
@@ -167,14 +275,32 @@ export async function getVoucherById(supabase: SupabaseClient<Database>, voucher
     .order("line_order");
   if (linesError) throw linesError;
 
+  const { data: invoiceLines, error: invoiceError } = await supabase
+    .from("invoice_lines")
+    .select("id, description, revenue_ledger_id, quantity, unit, rate, discount_amount, line_amount, line_order, ledgers(name)")
+    .eq("voucher_id", voucherId)
+    .order("line_order");
+  if (invoiceError) throw invoiceError;
+
+  // The party itself comes from the column. Its *name* is taken from whichever
+  // posting happens to be against that ledger, which costs no extra round trip
+  // and is not the old convention in disguise: the match is on the stored id,
+  // not on a line's position, so reordering the postings cannot change who the
+  // invoice says it is for.
+  const partyLedgerId = voucher.party_ledger_id;
+  const partyEntry = partyLedgerId ? (lines ?? []).find((l) => l.ledger_id === partyLedgerId) : undefined;
+
   return {
     id: voucher.id,
+    companyId: voucher.company_id,
     voucherType: voucher.voucher_type as VoucherType,
     voucherNumber: voucher.voucher_number,
     voucherDate: voucher.voucher_date,
     narration: voucher.narration,
     referenceNumber: voucher.reference_number,
     referenceDate: voucher.reference_date,
+    partyLedgerId,
+    partyLedgerName: partyEntry?.ledgers?.name ?? null,
     lines: (lines ?? []).map((l) => ({
       id: l.id,
       ledgerId: l.ledger_id,
@@ -184,6 +310,104 @@ export async function getVoucherById(supabase: SupabaseClient<Database>, voucher
       lineOrder: l.line_order,
       ledgerName: l.ledgers?.name ?? "",
     })),
+    invoiceLines: (invoiceLines ?? []).map((l) => ({
+      id: l.id,
+      description: l.description,
+      revenueLedgerId: l.revenue_ledger_id,
+      revenueLedgerName: l.ledgers?.name ?? "",
+      quantity: l.quantity,
+      unit: l.unit,
+      rate: l.rate,
+      discountAmount: l.discount_amount,
+      // Generated and stored, so it is never null in practice; the generated
+      // types mark it nullable because Postgres allows a generated expression
+      // to evaluate to null.
+      lineAmount: l.line_amount ?? 0,
+      lineOrder: l.line_order,
+    })),
+  };
+}
+
+/** Whoever the invoice is to or from — the customer debited, or the supplier credited. */
+export interface InvoiceParty {
+  id: string;
+  name: string;
+  contactPerson: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+}
+
+export interface InvoiceDocument {
+  voucher: VoucherWithLines;
+  company: {
+    name: string;
+    address: string | null;
+    phone: string | null;
+    email: string | null;
+    baseCurrency: string;
+  };
+  /**
+   * Null exactly when the voucher has no `party_ledger_id` — which means it is
+   * not an invoice, and the invoice page renders its "nothing to print" state
+   * rather than this document.
+   */
+  party: InvoiceParty | null;
+}
+
+/**
+ * Everything a printed invoice puts on paper.
+ *
+ * The party comes from `vouchers.party_ledger_id`. It used to be read back
+ * from the voucher's `line_order = 0` posting, on the strength of
+ * `generate_invoice_entries()` writing the party leg first — a convention no
+ * constraint enforced, so a reordered posting would have printed one
+ * customer's name over another customer's goods with nothing anywhere
+ * complaining. Migration 0022 made the party a column with a composite foreign
+ * key, and this reads that column. Nothing infers it from line order any more.
+ */
+export async function getInvoiceDocument(
+  supabase: SupabaseClient<Database>,
+  companyId: string,
+  voucherId: string
+): Promise<InvoiceDocument> {
+  const voucher = await getVoucherById(supabase, voucherId);
+
+  const { data: company, error: companyError } = await supabase
+    .from("companies")
+    .select("name, address, phone, email, base_currency")
+    .eq("id", companyId)
+    .single();
+  if (companyError) throw companyError;
+
+  let party: InvoiceParty | null = null;
+  if (voucher.partyLedgerId) {
+    const { data: ledger, error: ledgerError } = await supabase
+      .from("ledgers")
+      .select("id, name, contact_person, address, phone, email")
+      .eq("id", voucher.partyLedgerId)
+      .single();
+    if (ledgerError) throw ledgerError;
+    party = {
+      id: ledger.id,
+      name: ledger.name,
+      contactPerson: ledger.contact_person,
+      address: ledger.address,
+      phone: ledger.phone,
+      email: ledger.email,
+    };
+  }
+
+  return {
+    voucher,
+    company: {
+      name: company.name,
+      address: company.address,
+      phone: company.phone,
+      email: company.email,
+      baseCurrency: company.base_currency,
+    },
+    party,
   };
 }
 

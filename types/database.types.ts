@@ -81,6 +81,7 @@ export type Database = {
           changed_by: string | null
           company_id: string
           id: string
+          is_revert: boolean
           new_data: Json | null
           old_data: Json | null
           record_id: string
@@ -92,6 +93,7 @@ export type Database = {
           changed_by?: string | null
           company_id: string
           id?: string
+          is_revert?: boolean
           new_data?: Json | null
           old_data?: Json | null
           record_id: string
@@ -103,6 +105,7 @@ export type Database = {
           changed_by?: string | null
           company_id?: string
           id?: string
+          is_revert?: boolean
           new_data?: Json | null
           old_data?: Json | null
           record_id?: string
@@ -118,41 +121,357 @@ export type Database = {
           },
         ]
       }
+      bank_narration_rules: {
+        Row: {
+          bank_ledger_id: string | null
+          company_id: string
+          contra_ledger_id: string
+          created_at: string
+          created_by: string | null
+          direction: string
+          hit_count: number
+          id: string
+          is_manual: boolean
+          last_used_at: string
+          pattern: string
+          updated_at: string
+        }
+        Insert: {
+          bank_ledger_id?: string | null
+          company_id: string
+          contra_ledger_id: string
+          created_at?: string
+          created_by?: string | null
+          direction: string
+          hit_count?: number
+          id?: string
+          is_manual?: boolean
+          last_used_at?: string
+          pattern: string
+          updated_at?: string
+        }
+        Update: {
+          bank_ledger_id?: string | null
+          company_id?: string
+          contra_ledger_id?: string
+          created_at?: string
+          created_by?: string | null
+          direction?: string
+          hit_count?: number
+          id?: string
+          is_manual?: boolean
+          last_used_at?: string
+          pattern?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_narration_rules_bank_ledger_id_company_id_fkey"
+            columns: ["bank_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "bank_narration_rules_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_narration_rules_contra_ledger_id_company_id_fkey"
+            columns: ["contra_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
+      bank_statement_imports: {
+        Row: {
+          bank_ledger_id: string
+          closing_balance: number | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          duplicate_count: number
+          file_name: string | null
+          id: string
+          line_count: number
+          period_end: string | null
+          period_start: string | null
+        }
+        Insert: {
+          bank_ledger_id: string
+          closing_balance?: number | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          duplicate_count?: number
+          file_name?: string | null
+          id?: string
+          line_count?: number
+          period_end?: string | null
+          period_start?: string | null
+        }
+        Update: {
+          bank_ledger_id?: string
+          closing_balance?: number | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          duplicate_count?: number
+          file_name?: string | null
+          id?: string
+          line_count?: number
+          period_end?: string | null
+          period_start?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_statement_imports_bank_ledger_id_company_id_fkey"
+            columns: ["bank_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "bank_statement_imports_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bank_statement_lines: {
+        Row: {
+          bank_ledger_id: string
+          company_id: string
+          created_at: string
+          deposit_amount: number
+          fingerprint: string
+          id: string
+          import_id: string
+          line_number: number
+          matched_voucher_id: string | null
+          narration: string
+          posted_voucher_id: string | null
+          reference: string | null
+          running_balance: number | null
+          status: string
+          txn_date: string
+          updated_at: string
+          value_date: string | null
+          withdrawal_amount: number
+        }
+        Insert: {
+          bank_ledger_id: string
+          company_id: string
+          created_at?: string
+          deposit_amount?: number
+          fingerprint: string
+          id?: string
+          import_id: string
+          line_number: number
+          matched_voucher_id?: string | null
+          narration?: string
+          posted_voucher_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          status?: string
+          txn_date: string
+          updated_at?: string
+          value_date?: string | null
+          withdrawal_amount?: number
+        }
+        Update: {
+          bank_ledger_id?: string
+          company_id?: string
+          created_at?: string
+          deposit_amount?: number
+          fingerprint?: string
+          id?: string
+          import_id?: string
+          line_number?: number
+          matched_voucher_id?: string | null
+          narration?: string
+          posted_voucher_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          status?: string
+          txn_date?: string
+          updated_at?: string
+          value_date?: string | null
+          withdrawal_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_statement_lines_bank_ledger_id_company_id_fkey"
+            columns: ["bank_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_import_id_company_id_fkey"
+            columns: ["import_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "bank_statement_imports"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_matched_voucher_id_fkey"
+            columns: ["matched_voucher_id"]
+            isOneToOne: false
+            referencedRelation: "vouchers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_posted_voucher_id_fkey"
+            columns: ["posted_voucher_id"]
+            isOneToOne: false
+            referencedRelation: "vouchers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bank_statement_profiles: {
+        Row: {
+          amount_column: string | null
+          amount_mode: string
+          balance_column: string | null
+          bank_ledger_id: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          date_column: string
+          date_format: string
+          deposit_column: string | null
+          id: string
+          label: string
+          narration_columns: string[]
+          negative_is_withdrawal: boolean
+          reference_column: string | null
+          skip_rows: number
+          type_column: string | null
+          updated_at: string
+          value_date_column: string | null
+          withdrawal_column: string | null
+        }
+        Insert: {
+          amount_column?: string | null
+          amount_mode: string
+          balance_column?: string | null
+          bank_ledger_id: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          date_column: string
+          date_format: string
+          deposit_column?: string | null
+          id?: string
+          label: string
+          narration_columns?: string[]
+          negative_is_withdrawal?: boolean
+          reference_column?: string | null
+          skip_rows?: number
+          type_column?: string | null
+          updated_at?: string
+          value_date_column?: string | null
+          withdrawal_column?: string | null
+        }
+        Update: {
+          amount_column?: string | null
+          amount_mode?: string
+          balance_column?: string | null
+          bank_ledger_id?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          date_column?: string
+          date_format?: string
+          deposit_column?: string | null
+          id?: string
+          label?: string
+          narration_columns?: string[]
+          negative_is_withdrawal?: boolean
+          reference_column?: string | null
+          skip_rows?: number
+          type_column?: string | null
+          updated_at?: string
+          value_date_column?: string | null
+          withdrawal_column?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_statement_profiles_bank_ledger_id_company_id_fkey"
+            columns: ["bank_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "bank_statement_profiles_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       companies: {
         Row: {
+          address: string | null
           base_currency: string
           book_beginning_date: string
           created_at: string
           created_by: string | null
+          email: string | null
           financial_year_start_month: number
           id: string
           is_active: boolean
           lock_date: string | null
           name: string
+          phone: string | null
           updated_at: string
         }
         Insert: {
+          address?: string | null
           base_currency?: string
           book_beginning_date: string
           created_at?: string
           created_by?: string | null
+          email?: string | null
           financial_year_start_month?: number
           id?: string
           is_active?: boolean
           lock_date?: string | null
           name: string
+          phone?: string | null
           updated_at?: string
         }
         Update: {
+          address?: string | null
           base_currency?: string
           book_beginning_date?: string
           created_at?: string
           created_by?: string | null
+          email?: string | null
           financial_year_start_month?: number
           id?: string
           is_active?: boolean
           lock_date?: string | null
           name?: string
+          phone?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -333,6 +652,69 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "companies"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_lines: {
+        Row: {
+          company_id: string
+          created_at: string
+          description: string
+          discount_amount: number
+          id: string
+          line_amount: number | null
+          line_order: number
+          quantity: number
+          rate: number
+          revenue_ledger_id: string
+          unit: string | null
+          updated_at: string
+          voucher_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          description: string
+          discount_amount?: number
+          id?: string
+          line_amount?: number | null
+          line_order?: number
+          quantity?: number
+          rate?: number
+          revenue_ledger_id: string
+          unit?: string | null
+          updated_at?: string
+          voucher_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          description?: string
+          discount_amount?: number
+          id?: string
+          line_amount?: number | null
+          line_order?: number
+          quantity?: number
+          rate?: number
+          revenue_ledger_id?: string
+          unit?: string | null
+          updated_at?: string
+          voucher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_lines_revenue_ledger_id_company_id_fkey"
+            columns: ["revenue_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "invoice_lines_voucher_id_company_id_fkey"
+            columns: ["voucher_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "vouchers"
+            referencedColumns: ["id", "company_id"]
           },
         ]
       }
@@ -524,6 +906,7 @@ export type Database = {
           id: string
           is_deleted: boolean
           narration: string | null
+          party_ledger_id: string | null
           reference_date: string | null
           reference_number: string | null
           sequence_number: number
@@ -542,6 +925,7 @@ export type Database = {
           id?: string
           is_deleted?: boolean
           narration?: string | null
+          party_ledger_id?: string | null
           reference_date?: string | null
           reference_number?: string | null
           sequence_number: number
@@ -560,6 +944,7 @@ export type Database = {
           id?: string
           is_deleted?: boolean
           narration?: string | null
+          party_ledger_id?: string | null
           reference_date?: string | null
           reference_number?: string | null
           sequence_number?: number
@@ -577,6 +962,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "companies"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vouchers_party_ledger_id_company_id_fkey"
+            columns: ["party_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
           },
         ]
       }
@@ -598,6 +990,7 @@ export type Database = {
       create_voucher: {
         Args: {
           p_company_id: string
+          p_invoice?: Json
           p_lines: Json
           p_narration: string
           p_reference_date: string
@@ -615,10 +1008,7 @@ export type Database = {
           voucher_id: string
         }[]
       }
-      export_company_backup: {
-        Args: { p_company_id: string }
-        Returns: Json
-      }
+      export_company_backup: { Args: { p_company_id: string }; Returns: Json }
       get_balance_sheet: {
         Args: { p_as_of_date: string; p_company_id: string }
         Returns: {
@@ -628,6 +1018,22 @@ export type Database = {
           ledger_name: string
           nature: string
           side: string
+        }[]
+      }
+      get_bank_match_candidates: {
+        Args: {
+          p_bank_ledger_id: string
+          p_company_id: string
+          p_from_date: string
+          p_to_date: string
+        }
+        Returns: {
+          bank_amount: number
+          narration: string
+          voucher_date: string
+          voucher_id: string
+          voucher_number: string
+          voucher_type: string
         }[]
       }
       get_dashboard_summary: {
@@ -694,6 +1100,14 @@ export type Database = {
           nature: string
         }[]
       }
+      post_bank_statement_lines: {
+        Args: { p_company_id: string; p_lines: Json }
+        Returns: {
+          error_message: string
+          line_id: string
+          voucher_id: string
+        }[]
+      }
       preview_revert_since: {
         Args: { p_company_id: string; p_since: string }
         Returns: {
@@ -714,6 +1128,7 @@ export type Database = {
       }
       update_voucher: {
         Args: {
+          p_invoice?: Json
           p_lines: Json
           p_narration: string
           p_reference_date: string

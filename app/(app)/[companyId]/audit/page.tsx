@@ -18,6 +18,7 @@ const PAGE_SIZE = 50;
 const TABLE_LABEL: Record<AuditedTable, string> = {
   vouchers: "Vouchers",
   voucher_entries: "Voucher lines",
+  invoice_lines: "Invoice lines",
   ledgers: "Ledgers",
   account_groups: "Account groups",
   company_members: "Members",

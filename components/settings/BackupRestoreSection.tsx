@@ -162,6 +162,12 @@ export function BackupRestoreSection({
                 <Badge variant="secondary">{pending.summary.ledgers} ledgers</Badge>
                 <Badge variant="secondary">{pending.summary.vouchers} vouchers</Badge>
                 <Badge variant="secondary">{pending.summary.voucherEntries} lines</Badge>
+                {/* Absent from files written before invoicing existed, so
+                    shown only when the backup actually carries some — a "0
+                    invoice lines" badge on an old file reads as a loss. */}
+                {pending.summary.invoiceLines > 0 && (
+                  <Badge variant="secondary">{pending.summary.invoiceLines} invoice lines</Badge>
+                )}
               </div>
 
               <RadioGroup value={mode} onValueChange={(v) => v && setMode(v as RestoreMode)}>

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { FileText, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { createAppColumnHelper } from "@/components/data-table/table-features";
 import type { VoucherListItem } from "@/lib/supabase/queries/vouchers";
 import { formatCurrency } from "@/lib/utils/currency";
@@ -73,6 +73,15 @@ export function buildVoucherColumns(companyId: string, onDelete: (voucher: Vouch
                   <Pencil className="size-3.5" />
                   Edit
                 </DropdownMenuItem>
+                {/* Only sales and purchase carry invoice lines; whether this
+                    particular one has any is decided on the page itself, since
+                    the list query doesn't read them. */}
+                {(voucher.voucherType === "sales" || voucher.voucherType === "purchase") && (
+                  <DropdownMenuItem render={<Link href={`/${companyId}/vouchers/${voucher.id}/invoice`} />}>
+                    <FileText className="size-3.5" />
+                    {voucher.voucherType === "sales" ? "Invoice" : "Bill"}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem variant="destructive" onClick={() => onDelete(voucher)}>
                   <Trash2 className="size-3.5" />
                   Delete
