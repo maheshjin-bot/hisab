@@ -615,6 +615,10 @@ export type Database = {
           voucher_id: string
         }[]
       }
+      export_company_backup: {
+        Args: { p_company_id: string }
+        Returns: Json
+      }
       get_balance_sheet: {
         Args: { p_as_of_date: string; p_company_id: string }
         Returns: {
@@ -689,6 +693,10 @@ export type Database = {
           ledger_name: string
           nature: string
         }[]
+      }
+      restore_company_backup: {
+        Args: { p_mode?: string; p_payload: Json; p_target_company_id?: string }
+        Returns: string
       }
       update_voucher: {
         Args: {

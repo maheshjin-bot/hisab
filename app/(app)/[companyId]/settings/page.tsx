@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
 import { InviteLinkButton } from "@/components/settings/InviteLinkButton";
+import { BackupRestoreSection } from "@/components/settings/BackupRestoreSection";
 import {
   useCompaniesQuery,
   useCompanyMembersQuery,
@@ -212,6 +213,12 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
           </form>
         )}
       </section>
+
+      <BackupRestoreSection
+        companyId={companyId}
+        companyName={company?.name ?? "this company"}
+        isAdmin={isAdmin}
+      />
     </div>
   );
 }

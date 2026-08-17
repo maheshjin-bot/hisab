@@ -136,6 +136,34 @@ comes out as a document rather than a screenshot. Page numbers come from the
 browser's own print footer — Chrome and Edge don't implement the `@page`
 margin boxes that would let the document supply them.
 
+## Backup and restore
+
+Settings → **Backup & restore** downloads the whole company as one JSON file —
+chart of accounts, every ledger, every voucher and line, and the numbering
+sequences so a restored book keeps its voucher numbers. Anyone in the company
+can take one; restoring is admin-only.
+
+It's an ordinary file, so "cloud backup" is wherever you already keep
+documents — a synced Drive/Dropbox folder, or an attachment. There is no
+built-in cloud integration yet.
+
+Restoring asks which you want:
+
+- **As a new company** — leaves your existing books untouched, so you can
+  compare the two. This is the safe default.
+- **Replace this company** — deletes its ledgers and vouchers and puts the
+  backup in their place. Gated behind typing the company name, because there
+  is no undo. Members and invites are kept either way.
+
+The restore runs as a single database transaction: a backup that turns out to
+be inconsistent — an unbalanced voucher, a ledger whose group is missing —
+fails and leaves nothing behind, rather than importing half a set of books.
+
+Membership, invites and the audit log are deliberately **not** in the file.
+They reference users and history that mean nothing outside the project that
+produced them, and a backup shouldn't be a way to move accounts between
+companies.
+
 ## Change history
 
 Every change to vouchers, voucher lines, ledgers and members is recorded with
