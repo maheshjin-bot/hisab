@@ -74,7 +74,7 @@ Every assertion prints `ok <what>` as a notice. A failure raises, which aborts
 the script, so the last line before the error is the assertion just before the
 one that broke. A run that reaches the end prints `ALL GUARANTEES HELD`.
 
-Sections 6 to 20 each cover a specific migration, and each has been confirmed
+Sections 6 to 26 each cover a specific migration, and each has been confirmed
 to fail when that migration is absent — they are not vacuous:
 
 | Section | Covers | Guarantee |
@@ -94,6 +94,34 @@ to fail when that migration is absent — they are not vacuous:
 | 18 | 0021 | an invoice line cannot reference another company's ledger |
 | 19 | 0021 | the lock date governs invoice lines exactly as it governs `voucher_entries` |
 | 20 | 0021 | a discount reduces the posting, not just the printed line |
+| 21 | 0022 | an invoice stores the party it is made out to, on both sides of the books |
+| 22 | 0022 | the party is required of a voucher with invoice lines, and of no other |
+| 23 | 0022 | backup and restore carry the party, remapped to the restored ledger |
+| 24 | 0022 | undoing an invoice edit puts the original party back |
+| 25 | 0022 | a plain voucher cannot be turned into an invoice by an edit |
+| 26 | 0022 | an invoice cannot be made out to another company's ledger |
+| 27 | 0022 | an invoice's party cannot be removed by a bare `update` on the header |
+
+Sections 22 and 27 both cover 0022's party rule and are not duplicates: 22 is
+the rule as `check_invoice_lines_match()` enforces it, on the `invoice_lines`
+and `voucher_entries` writes, and its last case deliberately rewrites the
+postings to trigger the catch. 27 is the same corruption with that second
+statement taken away — the header edited on its own, which reaches neither
+watched table — and is the section `trg_voucher_party_required` exists for.
+
+`pg_temp.expect` treats a NULL condition as a failure, not a pass. Most of
+these assertions compare a value the database is supposed to have stored, and
+`v_party = v_debtor` is NULL — not false — when nothing was stored, so a
+plain `not p_condition` would have reported `ok` for an assertion that never
+held. Section 21 was written before migration 0022 and passed vacuously until
+the helper was tightened.
+
+`pg_temp.expect_error` is written the same way for the same reason:
+`position(lower(p_expect) in lower(sqlerrm)) = 0` is NULL, not false, if
+either operand is null, and a NULL condition would have skipped the raise and
+printed `ok`. No call site can reach it today — every `p_expect` in this file
+is a literal — but the guard fails closed regardless, because the direction of
+that bug is a green test that checked nothing.
 
 Section 19 is the one place the suite exercises RLS for real rather than
 evaluating a policy predicate by hand: it becomes the `authenticated` role for

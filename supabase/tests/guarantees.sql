@@ -17,10 +17,17 @@
 
 begin;
 
+-- `is not true`, not `not ...`: a condition that evaluates to NULL is not a
+-- pass. Comparing against a column that turns out to be null — `v_party =
+-- v_debtor` where the party was never recorded — yields NULL, and `not NULL`
+-- is NULL, which skips the raise and reports `ok` for an assertion that never
+-- actually held. Several of the assertions below compare a value the database
+-- is supposed to have stored, so a vacuous pass is exactly the failure mode
+-- they exist to catch.
 create or replace function pg_temp.expect(p_condition boolean, p_what text)
 returns void language plpgsql as $$
 begin
-  if not p_condition then
+  if p_condition is not true then
     raise exception 'FAILED: %', p_what;
   end if;
   raise notice '  ok  %', p_what;
@@ -28,6 +35,14 @@ end;
 $$;
 
 -- Asserts that `p_sql` raises, and that the message mentions `p_expect`.
+--
+-- Both guards below are written to fail closed, for the same reason
+-- pg_temp.expect() above is. `position(x in y) = 0` is NULL rather than false
+-- if either operand is NULL — a caller passing a null p_expect, or an sqlerrm
+-- that somehow came back empty — and a NULL condition skips the raise and
+-- reports `ok` for an assertion that was never checked. Neither is reachable
+-- from any call site in this file today; both are one refactor away from being
+-- reachable, and the failure mode is a green test that proves nothing.
 create or replace function pg_temp.expect_error(p_sql text, p_expect text, p_what text)
 returns void language plpgsql as $$
 declare
@@ -39,10 +54,10 @@ begin
   exception
     when others then
       v_message := sqlerrm;
-      if v_message like 'FAILED:%' then
+      if coalesce(v_message, '') like 'FAILED:%' then
         raise;
       end if;
-      if position(lower(p_expect) in lower(v_message)) = 0 then
+      if (position(lower(p_expect) in lower(v_message)) > 0) is not true then
         raise exception 'FAILED: % (expected %, got %)', p_what, p_expect, v_message;
       end if;
       raise notice '  ok  % -> %', p_what, v_message;
@@ -2361,6 +2376,632 @@ begin
            v_company, v_debtor, v_goods),
     'check constraint',
     'a discount larger than the line amount is refused'
+  );
+end;
+$$;
+
+-- --------------------------------------- 21. an invoice records its party
+
+\echo '21. An invoice records who it is to'
+
+-- 0021 stored an invoice's party — the customer on a sale, the supplier on a
+-- bill — nowhere at all. It was recoverable only by the convention that
+-- generate_invoice_entries() writes the party leg at line_order 0, and nothing
+-- in the schema held that convention up: a hand-written voucher_entries row
+-- that reordered the legs would have made the printed invoice name the wrong
+-- customer while every trigger, constraint and guarantee in this file still
+-- passed.
+--
+-- vouchers.party_ledger_id is the record now, and voucher_entries stays
+-- derived from it like everything else. So the assertions are two-sided: the
+-- column holds a party, and it is the same ledger the generator posted
+-- against. Either half alone would let the two drift.
+
+do $$
+declare
+  v_company uuid := current_setting('test.inv_company')::uuid;
+  v_debtor uuid := current_setting('test.inv_debtor')::uuid;
+  v_goods uuid := current_setting('test.inv_goods')::uuid;
+  v_voucher uuid;
+  v_party uuid;
+begin
+  v_voucher := public.create_voucher(
+    v_company, 'sales', '2026-04-15', 'a sale that remembers its customer', null, null, '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_debtor, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Widgets', 'quantity', 4,
+                         'rate', 25, 'revenue_ledger_id', v_goods)))
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  select v.party_ledger_id into v_party from public.vouchers v where v.id = v_voucher;
+
+  perform pg_temp.expect(
+    v_party = v_debtor,
+    'a sales invoice stores the customer it was made out to'
+  );
+
+  perform pg_temp.expect(
+    v_party = (select e.ledger_id from public.voucher_entries e
+               where e.voucher_id = v_voucher and e.line_order = 0),
+    'and it is the same ledger the generator posted the party leg against'
+  );
+
+  perform pg_temp.expect(
+    (select e.debit_amount from public.voucher_entries e
+     where e.voucher_id = v_voucher and e.ledger_id = v_party) = 100.00
+    and (select e.credit_amount from public.voucher_entries e
+         where e.voucher_id = v_voucher and e.ledger_id = v_party) = 0,
+    'and on a sale that ledger is the one debited, for the whole invoice'
+  );
+
+  perform set_config('test.party_voucher', v_voucher::text, false);
+end;
+$$;
+
+-- The purchase side, for the same reason section 13 exists: a write path that
+-- hard-coded the sales direction would store the party just as faithfully and
+-- still be describing the wrong leg of a bill.
+
+do $$
+declare
+  v_company uuid;
+  v_group uuid;
+  v_creditor uuid;
+  v_purchases uuid;
+  v_voucher uuid;
+  v_party uuid;
+begin
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Party Purchase Co', '2025-04-01', 4, 'INR') returning id into v_company;
+
+  perform app_private.seed_chart_of_accounts(v_company);
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Sundry Creditors';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Party Supplier') returning id into v_creditor;
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Direct Expenses';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Party Purchases') returning id into v_purchases;
+
+  v_voucher := public.create_voucher(
+    v_company, 'purchase', '2026-04-05', 'a bill that remembers its supplier', 'BILL-21', '2026-04-04',
+    '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_creditor, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Steel sheet', 'quantity', 3,
+                         'unit', 'nos', 'rate', 90, 'revenue_ledger_id', v_purchases)))
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  select v.party_ledger_id into v_party from public.vouchers v where v.id = v_voucher;
+
+  perform pg_temp.expect(
+    v_party = v_creditor,
+    'a purchase bill stores the supplier it came from'
+  );
+
+  perform pg_temp.expect(
+    v_party = (select e.ledger_id from public.voucher_entries e
+               where e.voucher_id = v_voucher and e.line_order = 0),
+    'and it too is the ledger the party leg was posted against'
+  );
+
+  perform pg_temp.expect(
+    (select e.credit_amount from public.voucher_entries e
+     where e.voucher_id = v_voucher and e.ledger_id = v_party) = 270.00
+    and (select e.debit_amount from public.voucher_entries e
+         where e.voucher_id = v_voucher and e.ledger_id = v_party) = 0,
+    'but on a bill that ledger is credited, not debited'
+  );
+end;
+$$;
+
+-- ------------------------------- 22. the party is required of invoices only
+
+\echo '22. An invoice must have a party; a plain voucher must not need one'
+
+-- The column is nullable on purpose. A journal and a contra have no
+-- counterparty, and the 57 sales and purchase vouchers already in the books
+-- have no invoice lines and no party either — they are not a backlog waiting
+-- to be upgraded, they are valid vouchers permanently.
+--
+-- So the rule is conditional, and it lives inside
+-- check_invoice_lines_match(), which already returns immediately for a
+-- voucher with no invoice lines. That early return *is* the
+-- backward-compatibility guarantee, and a condition placed after it inherits
+-- it: the new rule cannot reach a voucher that has no lines, by construction.
+
+do $$
+declare
+  v_company uuid := current_setting('test.inv_company')::uuid;
+  v_debtor uuid := current_setting('test.inv_debtor')::uuid;
+  v_goods uuid := current_setting('test.inv_goods')::uuid;
+  v_invoice uuid := current_setting('test.party_voucher')::uuid;
+  v_plain uuid;
+begin
+  -- The 57 legacy vouchers, in miniature: created the old way, no invoice
+  -- lines, no party — and accepted, with the constraints forced so the claim
+  -- is about what the database checks rather than what it has deferred.
+  v_plain := public.create_voucher(
+    v_company, 'sales', '2026-04-16', 'a sale with no invoice behind it', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_debtor, 'debit_amount', 700, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_goods,  'debit_amount', 0, 'credit_amount', 700, 'line_order', 1)
+    )
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select v.party_ledger_id from public.vouchers v where v.id = v_plain) is null
+    and (select count(*) from public.invoice_lines l where l.voucher_id = v_plain) = 0
+    and (select v.total_amount from public.vouchers v where v.id = v_plain) = 700.00,
+    'a voucher with no invoice lines is stored with no party at all, and is accepted'
+  );
+
+  -- Give that same voucher invoice lines by hand and it becomes an invoice
+  -- with nobody to bill. The line total is made to match the postings exactly
+  -- (7 x 100 = 700.00) so the amount half of the invariant cannot be what
+  -- fires: this is the party rule or nothing.
+  perform pg_temp.expect_error(
+    format($q$
+      insert into public.invoice_lines
+        (voucher_id, company_id, revenue_ledger_id, line_order, description, quantity, rate)
+      values (%L, %L, %L, 0, 'Retro-fitted', 7, 100);
+      set constraints all immediate;
+    $q$, v_plain, v_company, v_goods),
+    'party',
+    'a voucher that grows invoice lines without a party is refused'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.invoice_lines l where l.voucher_id = v_plain) = 0,
+    'and the refusal left it the plain voucher it was'
+  );
+
+  -- The same corruption seen from the other side. Removing the party of a
+  -- voucher that *is* an invoice does not on its own touch a table the
+  -- deferred trigger watches — but the moment its postings are written again,
+  -- which is what any edit does, the invariant is checked and it is refused.
+  perform pg_temp.expect_error(
+    format($q$
+      update public.vouchers set party_ledger_id = null where id = %L;
+      update public.voucher_entries set narration = 'rewritten' where voucher_id = %L;
+      set constraints all immediate;
+    $q$, v_invoice, v_invoice),
+    'party',
+    'an invoice stripped of its party cannot have its postings rewritten under it'
+  );
+
+  perform pg_temp.expect(
+    (select v.party_ledger_id from public.vouchers v where v.id = v_invoice) = v_debtor,
+    'and that invoice still names its customer'
+  );
+
+  perform set_config('test.party_plain', v_plain::text, false);
+end;
+$$;
+
+-- ------------------------------------- 23. the party survives a round trip
+
+\echo '23. Backup and restore carry the party, remapped'
+
+-- A backup that dropped the party would restore a book full of invoices
+-- addressed to nobody, with every total still tallying and no error anywhere
+-- to say so. And a restore that carried the *original* uuid over would be
+-- worse than an error: the composite foreign key would refuse it outright in
+-- the lucky case, and in the unlucky one it would land on a ledger of the
+-- target company that happened to share the id and quietly re-address the
+-- invoice to a different customer. It has to go through the same ledger map
+-- invoice_lines.revenue_ledger_id goes through.
+
+do $$
+declare
+  v_user uuid;
+  v_company uuid;
+  v_restored uuid;
+  v_group uuid;
+  v_debtor uuid;
+  v_goods uuid;
+  v_voucher uuid;
+  v_payload jsonb;
+  v_new_voucher uuid;
+  v_new_party uuid;
+begin
+  v_user := pg_temp.make_user('zz-backup-party@hisab.invalid');
+  perform pg_temp.act_as(v_user);
+
+  v_company := public.create_company('ZZ Backup Party Co', '2025-04-01', 4::smallint, 'INR');
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Sundry Debtors';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Party Bak Debtor') returning id into v_debtor;
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Party Bak Goods') returning id into v_goods;
+
+  v_voucher := public.create_voucher(
+    v_company, 'sales', '2026-04-05', 'an invoice with a customer worth keeping', null, null,
+    '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_debtor, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Widgets', 'quantity', 2,
+                         'unit', 'nos', 'rate', 125, 'revenue_ledger_id', v_goods)))
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  v_payload := public.export_company_backup(v_company);
+
+  -- export_company_backup builds each voucher with to_jsonb(v), so the column
+  -- rides along the moment it exists — but "it should have come along" is
+  -- exactly the assumption a backup is not allowed to make quietly.
+  perform pg_temp.expect(
+    (select bool_and(v ? 'party_ledger_id')
+     from jsonb_array_elements(v_payload->'vouchers') v),
+    'the backup file carries a party_ledger_id for every voucher in it'
+  );
+
+  v_restored := public.restore_company_backup(v_payload, 'new', null);
+  set constraints all deferred;
+
+  select v.id, v.party_ledger_id into v_new_voucher, v_new_party
+  from public.vouchers v
+  where v.company_id = v_restored and v.narration = 'an invoice with a customer worth keeping';
+
+  perform pg_temp.expect(
+    v_new_voucher is not null and v_new_voucher <> v_voucher and v_new_party is not null,
+    'the restored invoice is a different row and still has a party'
+  );
+
+  perform pg_temp.expect(
+    (select l.name from public.ledgers l where l.id = v_new_party) = 'ZZ Party Bak Debtor'
+    and (select l.company_id from public.ledgers l where l.id = v_new_party) = v_restored,
+    'and it points at the restored copy of its own customer, in the restored company'
+  );
+
+  -- The remapping assertion proper. Carrying the id over verbatim would pass
+  -- every check above.
+  perform pg_temp.expect(
+    v_new_party <> v_debtor,
+    'not at the ledger id the backup file was written with'
+  );
+
+  perform pg_temp.expect(
+    v_new_party = (select e.ledger_id from public.voucher_entries e
+                   where e.voucher_id = v_new_voucher and e.line_order = 0),
+    'and the restored party and the restored party posting still agree'
+  );
+
+  -- Files written before this column existed have no such key, and must still
+  -- restore — as vouchers with no party, which is what they were. Such a file
+  -- has no invoice_lines key either: 0021 and 0022 are consecutive, and there
+  -- is not one invoice line in the books between them. Stripping only the
+  -- party would describe a file that never existed — an itemised invoice
+  -- addressed to nobody — and the invariant above is right to refuse it.
+  v_restored := public.restore_company_backup(
+    jsonb_set(v_payload - 'invoice_lines', '{vouchers}', (
+      select coalesce(jsonb_agg(v - 'party_ledger_id'), '[]'::jsonb)
+      from jsonb_array_elements(v_payload->'vouchers') v
+    )),
+    'new', null
+  );
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select count(*) from public.vouchers v where v.company_id = v_restored) = 1
+    and (select v.party_ledger_id from public.vouchers v where v.company_id = v_restored) is null
+    and (select count(*) from public.voucher_entries e where e.company_id = v_restored) = 2,
+    'a backup written before the column existed still restores, with no party'
+  );
+
+  perform pg_temp.act_as(null);
+end;
+$$;
+
+-- ---------------------------------------------- 24. undo keeps the party
+
+\echo '24. Undoing an invoice edit puts the party back'
+
+-- revert_company_changes_since() replays a vouchers UPDATE by naming its
+-- columns explicitly, so a column missing from that list is silently not
+-- rewound: the undo would report success, put the lines, the entries and the
+-- totals back, and leave the invoice addressed to whoever the mistaken edit
+-- had named. Re-addressing an invoice is exactly the kind of mistake undo is
+-- offered for.
+
+do $$
+declare
+  v_user uuid;
+  v_company uuid;
+  v_group uuid;
+  v_right uuid;
+  v_wrong uuid;
+  v_goods uuid;
+  v_voucher uuid;
+begin
+  v_user := pg_temp.make_user('zz-undo-party@hisab.invalid');
+  perform pg_temp.act_as(v_user);
+
+  v_company := public.create_company('ZZ Undo Party Co', '2025-04-01', 4::smallint, 'INR');
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Sundry Debtors';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Undo Right Customer') returning id into v_right;
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Undo Wrong Customer') returning id into v_wrong;
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Undo Party Goods') returning id into v_goods;
+
+  perform pg_temp.stamp_audit(v_company, now() - interval '60 minutes');
+
+  v_voucher := public.create_voucher(
+    v_company, 'sales', '2026-04-05', 'issued to the right customer', null, null, '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_right, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'As invoiced', 'quantity', 3,
+                         'unit', 'nos', 'rate', 100, 'revenue_ledger_id', v_goods)))
+  );
+  set constraints all immediate;
+  set constraints all deferred;
+  perform pg_temp.stamp_audit(v_company, now() - interval '40 minutes');
+
+  -- The mistaken edit: the same goods, billed to somebody else entirely.
+  perform public.update_voucher(v_voucher, '2026-04-05', 'sent to the wrong customer', null, null, '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_wrong, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'As invoiced', 'quantity', 3,
+                         'unit', 'nos', 'rate', 100, 'revenue_ledger_id', v_goods))));
+  set constraints all immediate;
+  set constraints all deferred;
+  perform pg_temp.stamp_audit(v_company, now() - interval '20 minutes');
+
+  perform pg_temp.expect(
+    (select v.party_ledger_id from public.vouchers v where v.id = v_voucher) = v_wrong,
+    'the invoice is addressed to the wrong customer before the undo'
+  );
+
+  -- Cuts between the two, so only the edit comes off.
+  perform public.revert_company_changes_since(v_company, now() - interval '30 minutes');
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select v.party_ledger_id from public.vouchers v where v.id = v_voucher) = v_right,
+    'undoing the edit put the original customer back'
+  );
+
+  perform pg_temp.expect(
+    (select e.ledger_id from public.voucher_entries e
+     where e.voucher_id = v_voucher and e.line_order = 0) = v_right
+    and (select coalesce(sum(e.debit_amount), 0) from public.voucher_entries e
+         where e.voucher_id = v_voucher) = 300.00,
+    'and the party posting came back with it, so the two still agree'
+  );
+
+  perform pg_temp.act_as(null);
+end;
+$$;
+
+-- ------------------------------------ 25. a voucher cannot become an invoice
+
+\echo '25. A voucher cannot change its nature under you'
+
+-- 0021 left this asymmetric: update_voucher refused a plain-lines save of a
+-- voucher that has invoice lines, but accepted an invoice payload for a
+-- voucher that has none — so any of the 57 legacy vouchers could be silently
+-- upgraded into an invoice, with descriptions, quantities and rates invented
+-- at edit time and no record that they were. The database permitted it and
+-- only a UI choice prevented it.
+--
+-- The justification is 0004's, for voucher_type being immutable: a voucher
+-- should not change its nature under you.
+
+do $$
+declare
+  v_company uuid := current_setting('test.inv_company')::uuid;
+  v_debtor uuid := current_setting('test.inv_debtor')::uuid;
+  v_goods uuid := current_setting('test.inv_goods')::uuid;
+  v_plain uuid := current_setting('test.party_plain')::uuid;
+  v_invoice text;
+begin
+  v_invoice := jsonb_build_object(
+    'party_ledger_id', v_debtor,
+    'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Invented at edit time', 'quantity', 7,
+                         'rate', 100, 'revenue_ledger_id', v_goods)
+    )
+  )::text;
+
+  perform pg_temp.expect_error(
+    format($q$select public.update_voucher(%L, '2026-04-16', 'upgraded behind your back', null, null, '[]'::jsonb, %L::jsonb)$q$,
+           v_plain, v_invoice),
+    'not an invoice',
+    'a plain voucher cannot be turned into an invoice by an edit'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.invoice_lines l where l.voucher_id = v_plain) = 0
+    and (select v.party_ledger_id from public.vouchers v where v.id = v_plain) is null
+    and (select count(*) from public.voucher_entries e where e.voucher_id = v_plain) = 2,
+    'and the refusal left it a plain two-entry voucher with no party'
+  );
+
+  -- The refusal is symmetric with 0021's, which is the point: neither
+  -- direction is a save a user ever means to make, and both say what to do
+  -- instead rather than doing something surprising.
+  perform pg_temp.expect(
+    (select v.narration from public.vouchers v where v.id = v_plain) = 'a sale with no invoice behind it',
+    'not even its narration was written before the refusal'
+  );
+end;
+$$;
+
+-- ------------------------------------------- 26. the party is tenant-scoped
+
+\echo '26. An invoice cannot be made out to another company''s ledger'
+
+-- Same reasoning as section 18, applied to the new column: the foreign key is
+-- composite — (party_ledger_id, company_id) references ledgers (id,
+-- company_id) — so an invoice addressed to another company's customer is not
+-- merely blocked by a policy that a security-definer function could step
+-- around, it cannot be written down at all.
+
+do $$
+declare
+  v_company uuid := current_setting('test.inv_company')::uuid;
+  v_other uuid := current_setting('test.other_company')::uuid;
+  v_goods uuid := current_setting('test.inv_goods')::uuid;
+  v_voucher uuid := current_setting('test.party_voucher')::uuid;
+  v_group uuid;
+  v_foreign_party uuid;
+begin
+  select id into v_group from public.account_groups
+  where company_id = v_other and name = 'Sundry Debtors';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_other, v_group, 'ZZ Foreign Customer') returning id into v_foreign_party;
+
+  perform pg_temp.expect_error(
+    format($q$update public.vouchers set party_ledger_id = %L where id = %L$q$,
+           v_foreign_party, v_voucher),
+    'party_ledger_id',
+    'a voucher cannot be pointed at another company''s ledger by hand'
+  );
+
+  -- And through the write path, which is how it would actually be attempted:
+  -- a party id from one company posted against another company's books.
+  perform pg_temp.expect_error(
+    format($q$select public.create_voucher(%L, 'sales', '2026-04-17', 'somebody else''s customer', null, null, '[]'::jsonb,
+             jsonb_build_object('party_ledger_id', %L, 'lines', jsonb_build_array(
+               jsonb_build_object('description', 'Widgets', 'quantity', 1, 'rate', 100,
+                                  'revenue_ledger_id', %L))))$q$,
+           v_company, v_foreign_party, v_goods),
+    'party_ledger_id',
+    'and the write path cannot be used to address an invoice out of the company either'
+  );
+
+  perform pg_temp.expect(
+    not exists (select 1 from public.vouchers v
+                where v.company_id = v_company and v.party_ledger_id = v_foreign_party),
+    'no voucher in this company names the other company''s ledger'
+  );
+end;
+$$;
+
+-- ---------------------------- 27. the party cannot be taken away afterwards
+
+\echo '27. An invoice cannot have its party taken away'
+
+-- Section 22 asserts the rule as check_invoice_lines_match() enforces it, and
+-- that trigger is registered on invoice_lines and voucher_entries — the two
+-- tables holding the things it compares. That is every path that writes
+-- postings, which is every path the application offers. It is not every path
+-- that reaches the column. A bare
+--
+--   update public.vouchers set party_ledger_id = null where id = ...
+--
+-- touches neither watched table, so nothing fires; the vouchers update policy
+-- admits that statement from any member with write access in an unlocked
+-- period, and the invoice is caught only the next time somebody rewrites its
+-- postings — which may be never. Section 22's last case proves the eventual
+-- catch, and deliberately does not prove this one: it writes the entries
+-- itself, in the very next statement.
+--
+-- So this is the same corruption with the second statement taken away, which
+-- is what a user with the SQL editor open, a mistaken bulk update, or a
+-- future code path that only means to clear a field would actually do.
+
+do $$
+declare
+  v_company uuid := current_setting('test.inv_company')::uuid;
+  v_debtor uuid := current_setting('test.inv_debtor')::uuid;
+  v_invoice uuid := current_setting('test.party_voucher')::uuid;
+  v_plain uuid := current_setting('test.party_plain')::uuid;
+  v_group uuid;
+  v_second uuid;
+begin
+  perform pg_temp.expect(
+    (select v.party_ledger_id from public.vouchers v where v.id = v_invoice) = v_debtor
+    and (select count(*) from public.invoice_lines l where l.voucher_id = v_invoice) = 1,
+    'the invoice from section 21 still carries its line and its customer'
+  );
+
+  -- The whole of it: one statement, nothing else written, and the transaction
+  -- asked to make good on what it has done.
+  perform pg_temp.expect_error(
+    format($q$
+      update public.vouchers set party_ledger_id = null where id = %L;
+      set constraints all immediate;
+    $q$, v_invoice),
+    'party',
+    'an invoice cannot be stripped of its party by an update that touches nothing else'
+  );
+
+  perform pg_temp.expect(
+    (select v.party_ledger_id from public.vouchers v where v.id = v_invoice) = v_debtor
+    and (select count(*) from public.invoice_lines l where l.voucher_id = v_invoice) = 1,
+    'and the refusal left the invoice exactly as it was'
+  );
+
+  -- The positive control, and the thing this must never break: the same
+  -- statement, on a voucher with no invoice lines. Set first and cleared
+  -- after, because a column that was already null would not show the trigger
+  -- had fired at all — only that nothing had happened.
+  update public.vouchers set party_ledger_id = v_debtor where id = v_plain;
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select v.party_ledger_id from public.vouchers v where v.id = v_plain) = v_debtor,
+    'a voucher with no invoice lines can be given a party'
+  );
+
+  update public.vouchers set party_ledger_id = null where id = v_plain;
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select v.party_ledger_id from public.vouchers v where v.id = v_plain) is null
+    and (select count(*) from public.invoice_lines l where l.voucher_id = v_plain) = 0,
+    'and can have it taken away again, which is the 57 legacy vouchers left alone'
+  );
+
+  -- The over-reach this must not become. The rule is that an invoice has a
+  -- party, not that it keeps the one it was issued to: re-addressing a
+  -- misdirected bill to another of the company's own customers is ordinary
+  -- correction work, and it is what update_voucher does on every invoice edit.
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Sundry Debtors';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Party Second Customer') returning id into v_second;
+
+  update public.vouchers set party_ledger_id = v_second where id = v_invoice;
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select v.party_ledger_id from public.vouchers v where v.id = v_invoice) = v_second,
+    'an invoice can still be re-addressed from one customer to another'
+  );
+
+  update public.vouchers set party_ledger_id = v_debtor where id = v_invoice;
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select v.party_ledger_id from public.vouchers v where v.id = v_invoice) = v_debtor,
+    'and put back where it started'
   );
 end;
 $$;
