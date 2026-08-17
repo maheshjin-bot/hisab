@@ -188,6 +188,8 @@ export async function getVoucherById(supabase: SupabaseClient<Database>, voucher
 }
 
 export interface VoucherCsvLine {
+  /** 1-based, header = row 1 — the number the user sees in Excel. */
+  rowNumber: number;
   groupId: string;
   date: string;
   voucherType: VoucherType;
@@ -195,6 +197,9 @@ export interface VoucherCsvLine {
   drCr: "Dr" | "Cr";
   amount: number;
   narration?: string;
+  /** Per-voucher, not per-line — the importer makes every row of a group agree on them. */
+  referenceNumber?: string;
+  referenceDate?: string;
 }
 
 /**
@@ -234,8 +239,8 @@ export async function bulkImportVouchers(
     voucher_type: groupRows[0].voucherType,
     voucher_date: groupRows[0].date,
     narration: groupRows[0].narration ?? null,
-    reference_number: null,
-    reference_date: null,
+    reference_number: groupRows[0].referenceNumber ?? null,
+    reference_date: groupRows[0].referenceDate ?? null,
     lines: groupRows.map((r, i) => ({
       ledger_id: r.ledgerId,
       debit_amount: r.drCr === "Dr" ? r.amount : 0,
@@ -259,7 +264,11 @@ export async function bulkImportVouchers(
   for (const result of results) {
     const groupRows = groups.get(result.group_key) ?? [];
     if (result.error_message) {
-      errors.push({ rowNumber: 0, message: `Voucher ${result.group_key}: ${result.error_message}` });
+      // A whole group either commits or doesn't, so there is no single
+      // offending line — but the error still has to land on a row the user
+      // can find, and row 0 is not one (the header is row 1).
+      const rowNumber = groupRows[0]?.rowNumber ?? 0;
+      errors.push({ rowNumber, message: `Voucher ${result.group_key}: ${result.error_message}` });
     } else {
       insertedCount += groupRows.length;
     }

@@ -43,6 +43,16 @@ function findMissingRequiredColumns<TRow>(
     .map((c) => c.header);
 }
 
+/**
+ * The row number a user sees in Excel for the Nth data row. The header takes
+ * row 1, so data starts at 2. Anything that needs to quote a row number back
+ * to the user — including `transformRow`, which is handed the 0-based index —
+ * has to agree with this, so there is one definition of it.
+ */
+export function rowNumberForIndex(index: number): number {
+  return index + 2;
+}
+
 function zodErrorToRowErrors(error: z.ZodError): RowError[] {
   return error.issues.map((issue) => ({
     field: issue.path.length ? issue.path.join(".") : undefined,
@@ -77,9 +87,15 @@ export function buildImportPreview<TRow, TParsed, TContext = void>(
       ? config.rowSchema(ctx)
       : config.rowSchema;
 
+  // The header-normalized copy is kept alongside each result: a stage-3 rule
+  // that has to place a rejected row (which has no parsed data at all) can
+  // only do it from the raw cells, and it should not have to re-do the
+  // case-insensitive header matching to read them.
+  const normalizedRows = rawRows.map((raw) => normalizeRawRow(raw, config.columns));
+
   const results: RowValidationResult<TParsed>[] = rawRows.map((raw, index) => {
-    const rowNumber = index + 2; // header is row 1
-    const normalized = normalizeRawRow(raw, config.columns);
+    const rowNumber = rowNumberForIndex(index);
+    const normalized = normalizedRows[index];
 
     let transformed: TRow;
     try {
@@ -105,7 +121,12 @@ export function buildImportPreview<TRow, TParsed, TContext = void>(
       .filter((r): r is RowValidationResult<TParsed> & { data: TParsed } => r.errors.length === 0 && r.data !== null)
       .map((r) => ({ rowNumber: r.rowNumber, data: r.data }));
 
-    const fileLevel = config.validateFile(validSoFar, ctx);
+    const rejected = results
+      .map((result, index) => ({ result, index }))
+      .filter(({ result }) => result.errors.length > 0 || result.data === null)
+      .map(({ result, index }) => ({ rowNumber: result.rowNumber, raw: normalizedRows[index], errors: result.errors }));
+
+    const fileLevel = config.validateFile(validSoFar, ctx, rejected);
     fileIssues.push(...fileLevel);
 
     const byRowNumber = new Map(results.map((r) => [r.rowNumber, r]));
