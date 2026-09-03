@@ -19,6 +19,7 @@ import { useCompanyRole } from "@/hooks/useCompaniesQuery";
 import { useSupabase } from "@/hooks/useSupabase";
 import { buildLedgerCsvImportConfig } from "@/lib/ledgers/ledger-csv-config";
 import { searchLedgers, type Ledger } from "@/lib/supabase/queries/ledgers";
+import { itemsWithPending, selectItems } from "@/lib/utils/select-items";
 import { toUserMessage } from "@/lib/errors";
 
 export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers">) {
@@ -52,6 +53,19 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
     sortBy: sorting[0]?.id === "groupName" ? "group" : "name",
     sortDir: sorting[0]?.desc ? "desc" : "asc",
   });
+
+  // The group filter's trigger reads its label from here rather than from the
+  // option that was clicked, so this has to cover every value the filter can
+  // hold — including a group picked before the list came back.
+  const groupFilterItems = useMemo(
+    () =>
+      itemsWithPending(
+        selectItems(groups, (g) => [g.id, g.name], { all: "All groups" }),
+        groupId,
+        "All groups"
+      ),
+    [groups, groupId]
+  );
 
   const importConfig = useMemo(
     () => buildLedgerCsvImportConfig(supabase, companyId),
@@ -120,6 +134,10 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
             </div>
             <Select
               value={groupId}
+              // Without this the trigger shows the group's id — see the note
+              // on Select. "all" needs to be in the map too, or the unfiltered
+              // state reads as the literal word "all".
+              items={groupFilterItems}
               onValueChange={(v) => {
                 setGroupId(v ?? "all");
                 setPagination((p) => ({ ...p, pageIndex: 0 }));

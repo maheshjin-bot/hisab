@@ -37,6 +37,7 @@ import {
   type PartyType,
 } from "@/lib/ledgers/party-type";
 import { toUserMessage } from "@/lib/errors";
+import { itemsWithPending, selectItems } from "@/lib/utils/select-items";
 
 const schema = z.object({
   name: z.string().trim().min(1, { error: "Name is required" }),
@@ -54,6 +55,14 @@ type FormValues = z.infer<typeof schema>;
 
 /** The picker's entry for a ledger whose group is none of the six plain kinds. */
 const SOMETHING_ELSE = "other";
+
+// What each Select's trigger shows. Base UI resolves the label from a map on
+// the root rather than from the option that was clicked, so a Select over ids
+// shows an id and a Select over `debit`/`credit` shows the lowercase word.
+const PARTY_TYPE_ITEMS = selectItems(PARTY_TYPES, (t) => [t.value, t.label], {
+  [SOMETHING_ELSE]: "Something else",
+});
+const DR_CR_ITEMS = { debit: "Debit", credit: "Credit" };
 
 const EMPTY_VALUES: FormValues = {
   name: "",
@@ -194,6 +203,15 @@ function LedgerForm({
       ? chosenType
       : derivedType;
 
+  // An edit opens on the group it is editing before the groups query answers,
+  // so the id is covered by the placeholder until its name arrives — a form
+  // that has not loaded should read as empty, not as a UUID.
+  const groupItems = itemsWithPending(
+    selectItems(groups, (g) => [g.id, g.name]),
+    groupId,
+    "Select a group"
+  );
+
   const config = partyType ? partyTypeConfig(partyType) : null;
   const candidateGroups = partyType ? groupsForPartyType(groups ?? [], partyType) : [];
 
@@ -252,6 +270,7 @@ function LedgerForm({
             // form must read as an unanswered question rather than as one
             // already answered oddly.
             value={partyType ?? (selectedGroup ? SOMETHING_ELSE : null)}
+            items={PARTY_TYPE_ITEMS}
             onValueChange={(v) => handleTypeChange(String(v))}
             disabled={financialsLocked}
           >
@@ -320,7 +339,9 @@ function LedgerForm({
                   name="openingBalanceType"
                   control={control}
                   render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange} disabled={financialsLocked}>
+                    // `directions` is already a list of { value, label }, which
+                    // is one of the shapes `items` takes.
+                    <Select value={field.value} items={config.directions} onValueChange={field.onChange} disabled={financialsLocked}>
                       <SelectTrigger className="w-full" aria-label="Which way does this amount go?">
                         <SelectValue />
                       </SelectTrigger>
@@ -367,6 +388,7 @@ function LedgerForm({
                   render={({ field }) => (
                     <Select
                       value={field.value}
+                      items={groupItems}
                       onValueChange={(v) => {
                         field.onChange(v);
                         // The word above now follows the group, not the
@@ -403,7 +425,7 @@ function LedgerForm({
                     name="openingBalanceType"
                     control={control}
                     render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange} disabled={financialsLocked}>
+                      <Select value={field.value} items={DR_CR_ITEMS} onValueChange={field.onChange} disabled={financialsLocked}>
                         <SelectTrigger className="w-full">
                           <SelectValue />
                         </SelectTrigger>

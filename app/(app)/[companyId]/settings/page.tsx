@@ -27,6 +27,8 @@ import {
 import type { Company, CompanyRole } from "@/lib/supabase/queries/companies";
 import { toUserMessage } from "@/lib/errors";
 
+// Doubles as the `items` map of the two role Selects below: their values are
+// the database's role words, and a Select with no map shows the value itself.
 const ROLE_LABEL: Record<CompanyRole, string> = { admin: "Admin", accountant: "Accountant", auditor: "Auditor" };
 
 /**
@@ -221,7 +223,7 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
                 <span>{m.fullName ?? "Unnamed member"}</span>
                 <div className="flex items-center gap-2">
                   {isAdmin ? (
-                    <Select value={m.role} onValueChange={(v) => v && handleRoleChange(m.id, v as CompanyRole)}>
+                    <Select value={m.role} items={ROLE_LABEL} onValueChange={(v) => v && handleRoleChange(m.id, v as CompanyRole)}>
                       <SelectTrigger size="sm" className="w-32">
                         <SelectValue />
                       </SelectTrigger>
@@ -280,7 +282,7 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
               <FieldLabel htmlFor="invite-email">Invite by email</FieldLabel>
               <Input id="invite-email" type="email" required value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
             </Field>
-            <Select value={inviteRole} onValueChange={(v) => v && setInviteRole(v as CompanyRole)}>
+            <Select value={inviteRole} items={ROLE_LABEL} onValueChange={(v) => v && setInviteRole(v as CompanyRole)}>
               <SelectTrigger className="w-36">
                 <SelectValue />
               </SelectTrigger>

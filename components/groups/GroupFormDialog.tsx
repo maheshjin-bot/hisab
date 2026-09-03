@@ -23,6 +23,7 @@ import {
 import type { AccountGroup, LedgerRole } from "@/lib/supabase/queries/ledgers";
 import { toUserMessage } from "@/lib/errors";
 import { LEDGER_ROLE_LABEL, NATURE_LABEL, validParents, type GroupNode } from "./group-tree";
+import { selectItems } from "@/lib/utils/select-items";
 import { buildGroupFormSchema, LEDGER_ROLES, type GroupFormValues } from "./group-form-schema";
 
 
@@ -59,6 +60,13 @@ export function GroupFormDialog({
     // Creating: any group can be a parent — the new child inherits its nature.
     return [...allGroups].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
   }, [tree, allGroups, group]);
+
+  // The parent trigger shows a name; the list below indents a sub-group with
+  // a dash, which is a shape for the list and not part of the group's name.
+  const parentItems = useMemo(
+    () => selectItems(parentOptions, (g) => [g.id, g.name]),
+    [parentOptions]
+  );
 
   const schema = useMemo(() => buildGroupFormSchema(parentLocked), [parentLocked]);
 
@@ -137,7 +145,8 @@ export function GroupFormDialog({
                 name="parentGroupId"
                 control={control}
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange} disabled={parentLocked}>
+                  // Without `items` the trigger shows the parent's id.
+                  <Select value={field.value} items={parentItems} onValueChange={field.onChange} disabled={parentLocked}>
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select a parent" />
                     </SelectTrigger>
@@ -171,7 +180,7 @@ export function GroupFormDialog({
                 name="ledgerRole"
                 control={control}
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select value={field.value} items={LEDGER_ROLE_LABEL} onValueChange={field.onChange}>
                     <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>

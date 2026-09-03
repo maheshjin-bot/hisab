@@ -16,8 +16,19 @@ import { listVouchers, type VoucherListItem, type VoucherType } from "@/lib/supa
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toUserMessage } from "@/lib/errors";
 import { VOUCHER_TYPE_CONFIG, VOUCHER_TYPE_ORDER } from "@/lib/voucher/voucher-type-config";
+import { selectItems } from "@/lib/utils/select-items";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+
+// The filter's values are the database's own words — `sales`, `receipt` —
+// and the trigger reads its label from this map, not from the option that was
+// clicked. Without it the toolbar says "sales" where every other surface in
+// the app says "Sale Bill".
+const VOUCHER_TYPE_ITEMS = selectItems(
+  VOUCHER_TYPE_ORDER,
+  (type) => [type, VOUCHER_TYPE_CONFIG[type].label],
+  { all: "All types" }
+);
 
 export default function VouchersPage({ params }: PageProps<"/[companyId]/vouchers">) {
   const { companyId } = use(params);
@@ -86,6 +97,7 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
         toolbar={
           <Select
             value={voucherType}
+            items={VOUCHER_TYPE_ITEMS}
             onValueChange={(v) => {
               setVoucherType(v ?? "all");
               setPagination((p) => ({ ...p, pageIndex: 0 }));
