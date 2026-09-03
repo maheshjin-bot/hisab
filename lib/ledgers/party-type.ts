@@ -153,7 +153,7 @@ export function partyTypeConfig(type: PartyType): PartyTypeConfig {
  * Both carry ledger_role 'cash_bank' — the role exists to hard-filter the
  * Payment voucher's money leg, and for that purpose cash and bank are one
  * thing. Splitting them is a name test, which is what get_dashboard_summary
- * does (`g.name ilike '%cash%'`) and what migration 0016 flagged as imperfect.
+ * did (`g.name ilike '%cash%'`) and what migration 0016 flagged as imperfect.
  *
  * The imperfection is real and it is not hypothetical in India: a Cash Credit
  * account is a bank overdraft facility, and "Cash Credit A/c" matches `%cash%`
@@ -171,10 +171,19 @@ export function partyTypeConfig(type: PartyType): PartyTypeConfig {
  *
  * This is a *preference* used to pick a group, not a classification stored
  * anywhere, so being wrong about an oddly named group costs the user one trip
- * to Advanced rather than a mis-posted balance. get_dashboard_summary is
- * deliberately left alone: changing how the tiles split cash from bank is an
- * accounting-presentation change, not this task, and the two do not have to
- * agree for either to be correct about the ledger it files.
+ * to Advanced rather than a mis-posted balance.
+ *
+ * THE DATABASE NOW USES THE SAME RULE, and must. This file used to say
+ * get_dashboard_summary was deliberately left alone, on the grounds that the
+ * two answered different questions. They do not: if this decides a cash credit
+ * ledger is a bank account and the dashboard reports the same ledger as
+ * physical cash, the app has told the user two different things about one pile
+ * of money — and it did, reporting Cash in Hand at minus a lakh of rupees for
+ * an overdrawn cash credit account (audit finding F-16). Migration 0026 moved
+ * the tiles onto this rule, expressed once as
+ * `public.is_cash_group_name(text)`, whose four branches are the four below in
+ * the same order. Change one and change the other, or the app files a ledger
+ * one way and reports it another.
  */
 function cashBankFlavour(groupName: string): "bank" | "cash" {
   const name = groupName.toLowerCase();

@@ -49,7 +49,16 @@ function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]
               {groupRows.map((row) => (
                 <tr key={row.ledgerId ?? row.ledgerName} className="border-t">
                   <td className={cn("p-2.5 text-muted-foreground", groupRows.length > 1 ? "pl-6" : "pl-3")}>
-                    {groupRows.length === 1 ? row.groupName : row.ledgerName}
+                    {/*
+                      A group holding one line is collapsed onto its own name,
+                      so "Cash-in-Hand" is not shown above an indented "Till".
+                      The synthetic lines (ledgerId null — Net Profit/Loss, and
+                      the trading result brought forward that 0026 adds) are the
+                      exception: their name IS the label, and collapsing one of
+                      them puts "Capital Account" on the asset side of the sheet
+                      with no clue what it is.
+                    */}
+                    {groupRows.length === 1 && row.ledgerId !== null ? row.groupName : row.ledgerName}
                   </td>
                   <td className="p-2.5 pr-3 text-right tabular-nums">{formatCurrency(row.amount)}</td>
                 </tr>

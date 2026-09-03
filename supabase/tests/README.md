@@ -74,7 +74,7 @@ Every assertion prints `ok <what>` as a notice. A failure raises, which aborts
 the script, so the last line before the error is the assertion just before the
 one that broke. A run that reaches the end prints `ALL GUARANTEES HELD`.
 
-Sections 6 to 31 each cover a specific migration, and each has been confirmed
+Sections 6 to 37 each cover a specific migration, and each has been confirmed
 to fail when that migration is absent — they are not vacuous:
 
 | Section | Covers | Guarantee |
@@ -105,6 +105,12 @@ to fail when that migration is absent — they are not vacuous:
 | 29 | 0024 | and nothing else is: another supplier, another financial year, a blank or absent reference, another company, a sales voucher, a deleted one |
 | 30 | 0025 | the outstanding list names every party carrying a balance, which way it points, how much, and when it was last posted to |
 | 31 | 0025 | and nothing that is not money owed by a party: a settled account, an inactive one at nil, cash, sales, purchases, another company's debtor |
+| 32 | 0026 | the P&L reports a nominal ledger with the sign it carries: income left in debit reduces income, expense left in credit reduces expense |
+| 33 | 0026 | and the P&L's net profit is the Balance Sheet's Net Profit line, on the same date, with and without a reversal on the books |
+| 34 | 0026 | the Balance Sheet's profit figure covers the same books its ledger lines do — a voucher predating the book beginning, an opening balance on a nominal ledger |
+| 35 | 0026 | a bank overdraft in a group whose name contains "cash" is reported as bank |
+| 36 | 0026 | and a real till is still cash, including in a renamed group, and the two tiles still sum to the Trial Balance |
+| 37 | 0026 | the dashboard's change and movement figures count every ledger that had activity in the period, not only those holding a balance today |
 
 Sections 22 and 27 both cover 0022's party rule and are not duplicates: 22 is
 the rule as `check_invoice_lines_match()` enforces it, on the `invoice_lines`
@@ -156,6 +162,37 @@ which is why the totals are asserted as well as the rows. Section 31 also
 asserts that cash, sales and purchases hold balances before asserting that they
 are absent from the list, for the same reason section 29 does: a filter test
 against a fixture that was never created passes for the wrong reason.
+
+Sections 32 to 37 cover 0026, and three of the six are there to stop a fix
+from being an over-correction rather than to catch the defect. 32 asserts an
+ordinary book *before* it asserts a reversed one, because "report the sign"
+is satisfied by a function that negates everything and a fixture with only
+awkward rows would not notice. 36 asserts that a genuine till — and a till in
+a group a company renamed "Petty Cash" — is still counted as cash, because the
+cheap way to stop reading "Cash Credit Accounts" as a drawer is to stop
+reading anything as a drawer; it also pins the sum of the two tiles, which was
+the one thing the old split got right and the thing any new split must not
+break. 37 asserts that the two *balance* tiles are unchanged, which is what
+makes removing 0017's filter a repair of four figures rather than a silent
+change to six.
+
+Sections 33 and 34 are one guarantee in two halves. 33 is the identity — the
+P&L's net profit is the Balance Sheet's Net Profit line — asserted over the
+arithmetic the page actually performs on those rows, not over the function's
+output, because the defect it exists for was invisible row by row and only
+appeared once the page added them up. 34 is the identity's preconditions: the
+sheet can only balance if its profit figure is drawn from the same window and
+the same balances as the ledger lines it balances against, and it was drawn
+from neither. Both halves are needed. A suite with only 33 passes on books
+that have no opening balances and no voucher predating the book beginning,
+which is most books and not all of them.
+
+Section 34 also states the true relationship between the two reports rather
+than only the happy case: the P&L is period-scoped, so a window that starts
+after an early voucher does not count it, and only a window reaching back past
+everything on the books reproduces the Balance Sheet's life-to-date figure.
+Asserting the equality without also asserting the inequality would have let a
+P&L that quietly ignored its own `p_from_date` pass.
 
 Section 19 is the one place the suite exercises RLS for real rather than
 evaluating a policy predicate by hand: it becomes the `authenticated` role for

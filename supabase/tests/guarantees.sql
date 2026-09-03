@@ -3803,6 +3803,765 @@ begin
 end;
 $$;
 
+-- ------------------------------------- 32. the P&L reports a nominal ledger
+--                                           with the sign it actually carries
+
+\echo '32. An income ledger in debit reduces income; an expense ledger in credit reduces expense'
+
+-- Two companies, identical up to the point where one of them takes goods back.
+--
+-- ZZ PL Plain is the everyday book: sales, purchases, commission, rent, every
+-- ledger sitting on the side its group implies. It exists so that "the sign is
+-- reported" cannot be satisfied by a function that simply negates everything.
+--
+-- ZZ PL Returns adds the three ways a nominal ledger ends up on the other
+-- side, all of them ordinary:
+--
+--   * a credit note larger than the sales booked so far, which leaves the
+--     Sales ledger itself in debit;
+--   * a "Sales Returns" ledger grouped under Direct Incomes, which carries a
+--     debit for its whole life -- Tally's own arrangement, not a one-off;
+--   * a "Purchase Returns" ledger under Direct Expenses, the mirror of it.
+--
+-- get_profit_and_loss used to wrap the group's own signed sum in abs(), so all
+-- three were reported as magnitudes and the P&L page -- which computes
+-- income - expense over them -- added every one of them the wrong way round.
+
+do $$
+declare
+  v_plain uuid;
+  v_returns uuid;
+  v_company uuid;
+  v_group uuid;
+  v_cash uuid; v_sales uuid; v_sret uuid; v_purch uuid; v_pret uuid;
+  v_comm uuid; v_rent uuid;
+  v_which int;
+begin
+  for v_which in 1..2 loop
+    insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+    values (case when v_which = 1 then 'ZZ PL Plain Co' else 'ZZ PL Returns Co' end,
+            '2025-04-01', 4, 'INR')
+    returning id into v_company;
+
+    perform app_private.seed_chart_of_accounts(v_company);
+
+    select id into v_group from public.account_groups where company_id = v_company and name = 'Cash-in-Hand';
+    insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ PL Cash') returning id into v_cash;
+
+    select id into v_group from public.account_groups where company_id = v_company and name = 'Direct Incomes';
+    insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ PL Sales') returning id into v_sales;
+    insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ PL Sales Returns') returning id into v_sret;
+
+    select id into v_group from public.account_groups where company_id = v_company and name = 'Direct Expenses';
+    insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ PL Purchases') returning id into v_purch;
+    insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ PL Purchase Returns') returning id into v_pret;
+
+    select id into v_group from public.account_groups where company_id = v_company and name = 'Indirect Incomes';
+    insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ PL Commission') returning id into v_comm;
+
+    select id into v_group from public.account_groups where company_id = v_company and name = 'Indirect Expenses';
+    insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ PL Rent') returning id into v_rent;
+
+    -- The ordinary trading both companies share: 6750 sold, 2000 bought,
+    -- 500 of commission earned, 1200 of rent paid. Net result 4050.
+    perform public.create_voucher(v_company, 'journal', '2026-05-05', 'ZZ PL sold for cash', null, null,
+      jsonb_build_array(
+        jsonb_build_object('ledger_id', v_cash,  'debit_amount', 6750, 'credit_amount', 0, 'line_order', 0),
+        jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 6750, 'line_order', 1)));
+    perform public.create_voucher(v_company, 'journal', '2026-05-15', 'ZZ PL bought for cash', null, null,
+      jsonb_build_array(
+        jsonb_build_object('ledger_id', v_purch, 'debit_amount', 2000, 'credit_amount', 0, 'line_order', 0),
+        jsonb_build_object('ledger_id', v_cash,  'debit_amount', 0, 'credit_amount', 2000, 'line_order', 1)));
+    perform public.create_voucher(v_company, 'journal', '2026-05-18', 'ZZ PL commission earned', null, null,
+      jsonb_build_array(
+        jsonb_build_object('ledger_id', v_cash, 'debit_amount', 500, 'credit_amount', 0, 'line_order', 0),
+        jsonb_build_object('ledger_id', v_comm, 'debit_amount', 0, 'credit_amount', 500, 'line_order', 1)));
+    perform public.create_voucher(v_company, 'journal', '2026-05-25', 'ZZ PL rent paid', null, null,
+      jsonb_build_array(
+        jsonb_build_object('ledger_id', v_rent, 'debit_amount', 1200, 'credit_amount', 0, 'line_order', 0),
+        jsonb_build_object('ledger_id', v_cash, 'debit_amount', 0, 'credit_amount', 1200, 'line_order', 1)));
+
+    if v_which = 2 then
+      -- A credit note for more than has been billed so far. The customer is
+      -- owed 10000 against 6750 of sales, so the Sales ledger ends in debit.
+      perform public.create_voucher(v_company, 'journal', '2026-06-10', 'ZZ PL credit note against sales', null, null,
+        jsonb_build_array(
+          jsonb_build_object('ledger_id', v_sales, 'debit_amount', 10000, 'credit_amount', 0, 'line_order', 0),
+          jsonb_build_object('ledger_id', v_cash,  'debit_amount', 0, 'credit_amount', 10000, 'line_order', 1)));
+      -- Goods came back, booked to Sales Returns under Direct Incomes.
+      perform public.create_voucher(v_company, 'journal', '2026-06-12', 'ZZ PL goods came back', null, null,
+        jsonb_build_array(
+          jsonb_build_object('ledger_id', v_sret, 'debit_amount', 2500, 'credit_amount', 0, 'line_order', 0),
+          jsonb_build_object('ledger_id', v_cash, 'debit_amount', 0, 'credit_amount', 2500, 'line_order', 1)));
+      -- And goods went back, booked to Purchase Returns under Direct Expenses.
+      perform public.create_voucher(v_company, 'journal', '2026-06-14', 'ZZ PL sent goods back', null, null,
+        jsonb_build_array(
+          jsonb_build_object('ledger_id', v_cash, 'debit_amount', 1500, 'credit_amount', 0, 'line_order', 0),
+          jsonb_build_object('ledger_id', v_pret, 'debit_amount', 0, 'credit_amount', 1500, 'line_order', 1)));
+
+      v_returns := v_company;
+      perform set_config('test.pl_r_sales', v_sales::text, false);
+      perform set_config('test.pl_r_sret', v_sret::text, false);
+      perform set_config('test.pl_r_purch', v_purch::text, false);
+      perform set_config('test.pl_r_pret', v_pret::text, false);
+      perform set_config('test.pl_r_comm', v_comm::text, false);
+      perform set_config('test.pl_r_rent', v_rent::text, false);
+    else
+      v_plain := v_company;
+      perform set_config('test.pl_p_sales', v_sales::text, false);
+      perform set_config('test.pl_p_purch', v_purch::text, false);
+    end if;
+  end loop;
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform set_config('test.pl_plain', v_plain::text, false);
+  perform set_config('test.pl_returns', v_returns::text, false);
+end;
+$$;
+
+do $$
+declare
+  v_plain uuid := current_setting('test.pl_plain')::uuid;
+  v_returns uuid := current_setting('test.pl_returns')::uuid;
+  v_amount numeric;
+begin
+  -- The everyday book first, so nothing below can pass by negating blindly.
+  select amount into v_amount from public.get_profit_and_loss(v_plain, '2025-04-01', '2026-12-31')
+  where ledger_id = current_setting('test.pl_p_sales')::uuid;
+  perform pg_temp.expect(v_amount = 6750.00,
+    format('an ordinary income ledger is reported positive (%s)', v_amount));
+
+  select amount into v_amount from public.get_profit_and_loss(v_plain, '2025-04-01', '2026-12-31')
+  where ledger_id = current_setting('test.pl_p_purch')::uuid;
+  perform pg_temp.expect(v_amount = 2000.00,
+    format('and an ordinary expense ledger is reported positive too (%s)', v_amount));
+
+  -- The fixture really does leave these three ledgers on the far side. Asserted
+  -- against the Trial Balance, which has always reported them correctly, so
+  -- that a failure below is the P&L's and not the fixture's.
+  perform pg_temp.expect(
+    (select tb.debit_balance from public.get_trial_balance(v_returns, '2026-12-31') tb
+     where tb.ledger_id = current_setting('test.pl_r_sales')::uuid) = 3250.00,
+    'the Trial Balance shows the reversed Sales ledger sitting 3250 in debit'
+  );
+  perform pg_temp.expect(
+    (select tb.debit_balance from public.get_trial_balance(v_returns, '2026-12-31') tb
+     where tb.ledger_id = current_setting('test.pl_r_sret')::uuid) = 2500.00,
+    'and Sales Returns, an income-nature ledger, 2500 in debit'
+  );
+  perform pg_temp.expect(
+    (select tb.credit_balance from public.get_trial_balance(v_returns, '2026-12-31') tb
+     where tb.ledger_id = current_setting('test.pl_r_pret')::uuid) = 1500.00,
+    'and Purchase Returns, an expense-nature ledger, 1500 in credit'
+  );
+
+  -- An income ledger left in debit REDUCES income. Reported as a magnitude it
+  -- would read 3250 and be added to sales, overstating income by 6500 -- twice
+  -- the reversal, which is the shape of this whole family of defects.
+  select amount into v_amount from public.get_profit_and_loss(v_returns, '2025-04-01', '2026-12-31')
+  where ledger_id = current_setting('test.pl_r_sales')::uuid;
+  perform pg_temp.expect(v_amount = -3250.00,
+    format('an income ledger left in debit by a reversal reduces income (%s)', v_amount));
+
+  select amount into v_amount from public.get_profit_and_loss(v_returns, '2025-04-01', '2026-12-31')
+  where ledger_id = current_setting('test.pl_r_sret')::uuid;
+  perform pg_temp.expect(v_amount = -2500.00,
+    format('a Sales Returns ledger under Direct Incomes likewise (%s)', v_amount));
+
+  -- The mirror image: an expense ledger left in credit reduces expense.
+  select amount into v_amount from public.get_profit_and_loss(v_returns, '2025-04-01', '2026-12-31')
+  where ledger_id = current_setting('test.pl_r_pret')::uuid;
+  perform pg_temp.expect(v_amount = -1500.00,
+    format('an expense ledger left in credit by a refund reduces expense (%s)', v_amount));
+
+  -- And the two that never moved off their own side are untouched by all of it.
+  select amount into v_amount from public.get_profit_and_loss(v_returns, '2025-04-01', '2026-12-31')
+  where ledger_id = current_setting('test.pl_r_comm')::uuid;
+  perform pg_temp.expect(v_amount = 500.00, 'an indirect income ledger is still reported positive');
+
+  select amount into v_amount from public.get_profit_and_loss(v_returns, '2025-04-01', '2026-12-31')
+  where ledger_id = current_setting('test.pl_r_rent')::uuid;
+  perform pg_temp.expect(v_amount = 1200.00, 'and an indirect expense ledger too');
+end;
+$$;
+
+-- ------------------------- 33. and the two statements agree on the net result
+
+\echo '33. The P&L''s net profit is the Balance Sheet''s Net Profit line'
+
+-- The arithmetic the P&L page does over those rows, reproduced exactly:
+--   gross = sum(direct_income) - sum(direct_expense)
+--   net   = gross + sum(indirect_income) - sum(indirect_expense)
+-- See app/(app)/[companyId]/reports/profit-loss/page.tsx. This is the figure a
+-- user reads off the screen, so it is the figure that has to be checked --
+-- asserting the function's rows in isolation would have let this defect stand.
+create or replace function pg_temp.pl_net(p_company uuid, p_from date, p_to date)
+returns numeric language sql stable as $$
+  select
+    coalesce(sum(amount) filter (where nature = 'direct_income'), 0)
+  - coalesce(sum(amount) filter (where nature = 'direct_expense'), 0)
+  + coalesce(sum(amount) filter (where nature = 'indirect_income'), 0)
+  - coalesce(sum(amount) filter (where nature = 'indirect_expense'), 0)
+  from public.get_profit_and_loss(p_company, p_from, p_to);
+$$;
+
+-- The Balance Sheet's own Net Profit/Loss line, signed: a profit sits on the
+-- liability side and a loss on the asset side. Named rather than taken from
+-- "every synthetic row", because the sheet also carries a line for a trading
+-- result brought forward and that one is not this period's result.
+create or replace function pg_temp.bs_net(p_company uuid, p_as_of date)
+returns numeric language sql stable as $$
+  select coalesce(sum(case when b.side = 'liability' then b.amount else -b.amount end), 0)
+  from public.get_balance_sheet(p_company, p_as_of) b
+  where b.ledger_id is null
+    and b.ledger_name in ('Net Profit (Current Period)', 'Net Loss (Current Period)');
+$$;
+
+do $$
+declare
+  v_plain uuid := current_setting('test.pl_plain')::uuid;
+  v_returns uuid := current_setting('test.pl_returns')::uuid;
+  v_date date;
+  v_name text;
+begin
+  -- Without a reversal anywhere on the books. This is the case that already
+  -- worked, and it is here so that a fix which agrees only in the awkward case
+  -- cannot pass.
+  perform pg_temp.expect(pg_temp.pl_net(v_plain, '2025-04-01', '2026-12-31') = 4050.00,
+    format('the plain book''s net profit is 4050 (%s)', pg_temp.pl_net(v_plain, '2025-04-01', '2026-12-31')));
+  perform pg_temp.expect(pg_temp.bs_net(v_plain, '2026-12-31') = 4050.00,
+    format('and the Balance Sheet says 4050 too (%s)', pg_temp.bs_net(v_plain, '2026-12-31')));
+
+  -- With one. 6750 sold less 10000 credited back is 3250 of negative sales;
+  -- 2500 of sales returns; 2000 of purchases less 1500 returned; 500 earned
+  -- and 1200 spent. A loss of 6950, where the abs() reported a profit of 1550.
+  perform pg_temp.expect(pg_temp.pl_net(v_returns, '2025-04-01', '2026-12-31') = -6950.00,
+    format('the reversed book''s net result is a loss of 6950 (%s)', pg_temp.pl_net(v_returns, '2025-04-01', '2026-12-31')));
+  perform pg_temp.expect(pg_temp.bs_net(v_returns, '2026-12-31') = -6950.00,
+    format('and the Balance Sheet agrees to the paisa (%s)', pg_temp.bs_net(v_returns, '2026-12-31')));
+
+  -- The same equality on every date either book has activity on, in both
+  -- books, so it is the identity being asserted and not one lucky total.
+  foreach v_date in array array['2026-05-04'::date, '2026-05-05', '2026-05-25', '2026-06-09',
+                                '2026-06-10', '2026-06-14', '2026-12-31'] loop
+    perform pg_temp.expect(
+      pg_temp.pl_net(v_plain, '2025-04-01', v_date) = pg_temp.bs_net(v_plain, v_date),
+      format('plain book: the two statements agree at %s (%s)', v_date, pg_temp.bs_net(v_plain, v_date))
+    );
+    perform pg_temp.expect(
+      pg_temp.pl_net(v_returns, '2025-04-01', v_date) = pg_temp.bs_net(v_returns, v_date),
+      format('reversed book: the two statements agree at %s (%s)', v_date, pg_temp.bs_net(v_returns, v_date))
+    );
+  end loop;
+
+  -- The Balance Sheet says so in words as well as in figures: a negative
+  -- result is a Net Loss on the asset side, not a Net Profit on the other one.
+  select b.ledger_name into v_name from public.get_balance_sheet(v_returns, '2026-12-31') b
+  where b.ledger_id is null and b.ledger_name like 'Net %';
+  perform pg_temp.expect(v_name = 'Net Loss (Current Period)',
+    format('and calls it a loss rather than a profit (%s)', v_name));
+
+  -- Both sheets still tally, which is the property the Net Profit line exists
+  -- to produce and the one a wrong sign would break.
+  perform pg_temp.expect(
+    (select coalesce(sum(b.amount) filter (where b.side = 'asset'), 0)
+          - coalesce(sum(b.amount) filter (where b.side = 'liability'), 0)
+     from public.get_balance_sheet(v_returns, '2026-12-31') b) = 0,
+    'and the reversed book''s Balance Sheet still tallies'
+  );
+end;
+$$;
+
+-- ---------------- 34. the Balance Sheet accounts for every balance on the books
+
+\echo '34. The Balance Sheet''s profit figure covers the same books its ledger lines do'
+
+-- The sheet tallies by construction only if its profit figure is drawn from
+-- the same window and the same balances as the ledger lines it has to balance
+-- against. It was drawn from neither:
+--
+--   * the ledger lines have no lower date bound; the profit figure started at
+--     book_beginning_date. A voucher dated before that -- nothing in the
+--     schema forbids one -- landed in the lines and not in the profit, and the
+--     sheet went out by exactly that voucher;
+--   * the ledger lines include each ledger's opening balance; the profit
+--     figure read voucher_entries only. An opening balance on an income or
+--     expense ledger -- what somebody migrating mid-year does when they carry
+--     their year-to-date sales across -- appeared on neither side of the
+--     sheet, and was silently lost.
+--
+-- Both fixtures assert the Trial Balance first. It has never had either bound,
+-- so it is the independent witness that the books themselves are sound and the
+-- disagreement is the Balance Sheet's.
+
+do $$
+declare
+  v_early uuid;
+  v_carried uuid;
+  v_carried_loss uuid;
+  v_group uuid;
+  v_cash uuid; v_sales uuid; v_capital uuid; v_expense uuid;
+begin
+  -- (a) a voucher dated before the books were declared to begin.
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ BS Early Co', '2025-04-01', 4, 'INR') returning id into v_early;
+  perform app_private.seed_chart_of_accounts(v_early);
+
+  select id into v_group from public.account_groups where company_id = v_early and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_early, v_group, 'ZZ BE Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_early and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_early, v_group, 'ZZ BE Sales') returning id into v_sales;
+
+  perform public.create_voucher(v_early, 'journal', '2025-03-31', 'ZZ BE dated before book beginning', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_cash,  'debit_amount', 1000, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 1000, 'line_order', 1)));
+  perform public.create_voucher(v_early, 'journal', '2026-05-01', 'ZZ BE an ordinary sale', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_cash,  'debit_amount', 500, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 500, 'line_order', 1)));
+
+  -- (b) trading results carried in as opening balances on nominal ledgers.
+  -- 9000 of sales and 4000 of expenses brought forward net to a 5000 profit
+  -- carried in; the openings across the company tally, 13000 against 13000,
+  -- because a Balance Sheet cannot be expected to agree when they do not.
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ BS Carried Co', '2025-04-01', 4, 'INR') returning id into v_carried;
+  perform app_private.seed_chart_of_accounts(v_carried);
+
+  select id into v_group from public.account_groups where company_id = v_carried and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type)
+  values (v_carried, v_group, 'ZZ BC Cash', 9000, 'debit') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_carried and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type)
+  values (v_carried, v_group, 'ZZ BC Sales Brought Forward', 9000, 'credit') returning id into v_sales;
+  select id into v_group from public.account_groups where company_id = v_carried and name = 'Direct Expenses';
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type)
+  values (v_carried, v_group, 'ZZ BC Expenses Brought Forward', 4000, 'debit') returning id into v_expense;
+  select id into v_group from public.account_groups where company_id = v_carried and name = 'Capital Account';
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type)
+  values (v_carried, v_group, 'ZZ BC Capital', 4000, 'credit') returning id into v_capital;
+
+  -- (c) the mirror: more expense than income brought forward, so what comes
+  -- across is a loss and belongs on the other side of the sheet.
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ BS Carried Loss Co', '2025-04-01', 4, 'INR') returning id into v_carried_loss;
+  perform app_private.seed_chart_of_accounts(v_carried_loss);
+
+  select id into v_group from public.account_groups where company_id = v_carried_loss and name = 'Direct Expenses';
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type)
+  values (v_carried_loss, v_group, 'ZZ BL Expenses Brought Forward', 3000, 'debit');
+  select id into v_group from public.account_groups where company_id = v_carried_loss and name = 'Capital Account';
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type)
+  values (v_carried_loss, v_group, 'ZZ BL Capital', 3000, 'credit');
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform set_config('test.bs_early', v_early::text, false);
+  perform set_config('test.bs_carried', v_carried::text, false);
+  perform set_config('test.bs_carried_loss', v_carried_loss::text, false);
+  perform set_config('test.bs_c_sales', v_sales::text, false);
+end;
+$$;
+
+do $$
+declare
+  v_early uuid := current_setting('test.bs_early')::uuid;
+  v_carried uuid := current_setting('test.bs_carried')::uuid;
+  v_loss uuid := current_setting('test.bs_carried_loss')::uuid;
+  v_row record;
+begin
+  -- (a) The pre-book-beginning voucher exists and is ordinary: balanced, not
+  -- deleted, and refused by nothing.
+  perform pg_temp.expect(
+    exists (select 1 from public.vouchers v
+            where v.company_id = v_early and v.is_deleted = false
+              and v.voucher_date < (select c.book_beginning_date from public.companies c where c.id = v_early)),
+    'a voucher dated before book_beginning_date can be written down at all'
+  );
+  perform pg_temp.expect(
+    (select coalesce(sum(tb.debit_balance), 0) from public.get_trial_balance(v_early, '2026-06-30') tb) = 1500.00
+    and (select coalesce(sum(tb.credit_balance), 0) from public.get_trial_balance(v_early, '2026-06-30') tb) = 1500.00,
+    'and the Trial Balance, which has no lower bound, counts it on both sides at 1500'
+  );
+  perform pg_temp.expect(
+    (select coalesce(sum(b.amount) filter (where b.side = 'asset'), 0)
+          - coalesce(sum(b.amount) filter (where b.side = 'liability'), 0)
+     from public.get_balance_sheet(v_early, '2026-06-30') b) = 0,
+    'so the Balance Sheet''s two sides agree despite it'
+  );
+  perform pg_temp.expect(
+    pg_temp.bs_net(v_early, '2026-06-30') = 1500.00,
+    format('because its profit figure counts every entry on the books, not only those since book beginning (%s)',
+           pg_temp.bs_net(v_early, '2026-06-30'))
+  );
+  -- The P&L is period-scoped and says so: asked for the year it reports 500,
+  -- and only a window that reaches back past the early voucher reproduces the
+  -- Balance Sheet. That is the relationship between the two, stated rather
+  -- than glossed over.
+  perform pg_temp.expect(
+    pg_temp.pl_net(v_early, '2025-04-01', '2026-06-30') = 500.00,
+    'a P&L asked for a window that starts after the early voucher does not count it'
+  );
+  perform pg_temp.expect(
+    pg_temp.pl_net(v_early, '0001-01-01', '2026-06-30') = pg_temp.bs_net(v_early, '2026-06-30'),
+    'and a P&L asked for the whole of the books lands exactly on the Balance Sheet''s figure'
+  );
+
+  -- (b) The carried-forward trading result.
+  perform pg_temp.expect(
+    (select tb.credit_balance from public.get_trial_balance(v_carried, '2026-06-30') tb
+     where tb.ledger_id = current_setting('test.bs_c_sales')::uuid) = 9000.00,
+    'the Trial Balance reports an income ledger''s opening credit'
+  );
+  perform pg_temp.expect(
+    (select coalesce(sum(tb.debit_balance), 0) from public.get_trial_balance(v_carried, '2026-06-30') tb)
+    = (select coalesce(sum(tb.credit_balance), 0) from public.get_trial_balance(v_carried, '2026-06-30') tb),
+    'and tallies, so the books themselves are sound'
+  );
+  perform pg_temp.expect(
+    (select count(*) from public.get_profit_and_loss(v_carried, '2025-04-01', '2026-06-30')) = 0,
+    'the P&L reports nothing, because an opening balance is not activity in a period'
+  );
+  perform pg_temp.expect(
+    (select coalesce(sum(b.amount) filter (where b.side = 'asset'), 0)
+          - coalesce(sum(b.amount) filter (where b.side = 'liability'), 0)
+     from public.get_balance_sheet(v_carried, '2026-06-30') b) = 0,
+    'and the Balance Sheet still tallies, so the carried figure was not lost'
+  );
+
+  select * into v_row from public.get_balance_sheet(v_carried, '2026-06-30') b
+  where b.ledger_id is null and b.ledger_name like 'Opening %';
+  perform pg_temp.expect(
+    v_row.side = 'liability' and v_row.amount = 5000.00
+    and v_row.ledger_name = 'Opening Profit (Brought Forward)',
+    format('it is reported under its own name, netted: 9000 of income less 4000 of expense (%s %s %s)',
+           v_row.ledger_name, v_row.side, v_row.amount)
+  );
+  perform pg_temp.expect(
+    pg_temp.bs_net(v_carried, '2026-06-30') = 0.00
+    and pg_temp.pl_net(v_carried, '2025-04-01', '2026-06-30') = 0.00,
+    'and the Net Profit line is still this period''s result -- nil -- so the two statements still agree'
+  );
+
+  -- (c) And the other way round.
+  select * into v_row from public.get_balance_sheet(v_loss, '2026-06-30') b
+  where b.ledger_id is null and b.ledger_name like 'Opening %';
+  perform pg_temp.expect(
+    v_row.side = 'asset' and v_row.amount = 3000.00
+    and v_row.ledger_name = 'Opening Loss (Brought Forward)',
+    format('more expense than income brought forward is a loss, on the asset side (%s %s %s)',
+           v_row.ledger_name, v_row.side, v_row.amount)
+  );
+  perform pg_temp.expect(
+    (select coalesce(sum(b.amount) filter (where b.side = 'asset'), 0)
+          - coalesce(sum(b.amount) filter (where b.side = 'liability'), 0)
+     from public.get_balance_sheet(v_loss, '2026-06-30') b) = 0,
+    'and that sheet tallies too'
+  );
+
+  -- No book that has neither gets a line it did not have before.
+  perform pg_temp.expect(
+    not exists (
+      select 1 from public.get_balance_sheet(current_setting('test.pl_returns')::uuid, '2026-12-31') b
+      where b.ledger_id is null and b.ledger_name like 'Opening %'
+    ),
+    'and a company with nothing brought forward grows no such line'
+  );
+end;
+$$;
+
+-- ------------------- 35. an overdraft named for cash is a bank, not a till
+
+\echo '35. A bank overdraft in a group whose name contains "cash" is reported as bank'
+
+-- "Cash Credit Accounts" is the standard Indian name for a bank overdraft
+-- facility, and get_dashboard_summary split cash from bank on
+-- `g.name ilike '%cash%'`. So an overdrawn cash credit account was subtracted
+-- from physical cash: with 1,83,240 drawn the dashboard reported a till
+-- holding minus a lakh of rupees, which is not a thing that can happen.
+--
+-- The fixture also carries a group renamed "Petty Cash", because the cheap
+-- version of this fix -- excluding anything with a qualifier in its name --
+-- would file a real till as a bank and be just as wrong in the other
+-- direction.
+
+do $$
+declare
+  v_company uuid;
+  v_ca uuid;
+  v_group uuid;
+  v_cc_group uuid;
+  v_petty_group uuid;
+  v_till uuid; v_petty uuid; v_current uuid; v_cc uuid; v_rent uuid;
+begin
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Tiles Co', '2025-04-01', 4, 'INR') returning id into v_company;
+  perform app_private.seed_chart_of_accounts(v_company);
+
+  select id into v_ca from public.account_groups where company_id = v_company and name = 'Current Assets';
+
+  -- The company's own cash/bank groups, filed exactly as the ledger form
+  -- would file them: the cash_bank role, under Current Assets.
+  insert into public.account_groups (company_id, parent_group_id, name, nature, normal_balance, ledger_role, sort_order)
+  values (v_company, v_ca, 'Cash Credit Accounts', 'current_asset', 'debit', 'cash_bank', 5)
+  returning id into v_cc_group;
+  insert into public.account_groups (company_id, parent_group_id, name, nature, normal_balance, ledger_role, sort_order)
+  values (v_company, v_ca, 'Petty Cash', 'current_asset', 'debit', 'cash_bank', 6)
+  returning id into v_petty_group;
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type)
+  values (v_company, v_group, 'ZZ T Till', 5000, 'debit') returning id into v_till;
+
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type)
+  values (v_company, v_petty_group, 'ZZ T Petty Cash Box', 1500, 'debit') returning id into v_petty;
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Bank Accounts';
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type)
+  values (v_company, v_group, 'ZZ T Current A/c', 20000, 'debit') returning id into v_current;
+
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type)
+  values (v_company, v_cc_group, 'ZZ T ICICI Cash Credit A/c', 183240, 'credit') returning id into v_cc;
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Indirect Expenses';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ T Rent') returning id into v_rent;
+
+  -- One payment out of the overdraft this month, so the change and movement
+  -- tiles have something to be right or wrong about.
+  perform public.create_voucher(v_company, 'payment', '2026-06-10', 'ZZ T rent paid from the cash credit account', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_rent, 'debit_amount', 1000, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_cc,   'debit_amount', 0, 'credit_amount', 1000, 'line_order', 1)));
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform set_config('test.tiles_company', v_company::text, false);
+  perform set_config('test.tiles_cc_group', v_cc_group::text, false);
+  perform set_config('test.tiles_petty_group', v_petty_group::text, false);
+  perform set_config('test.tiles_till', v_till::text, false);
+  perform set_config('test.tiles_petty', v_petty::text, false);
+  perform set_config('test.tiles_current', v_current::text, false);
+  perform set_config('test.tiles_cc', v_cc::text, false);
+end;
+$$;
+
+do $$
+declare
+  v_company uuid := current_setting('test.tiles_company')::uuid;
+  d record;
+begin
+  -- Not vacuous: the group really is a cash/bank group, and its name really
+  -- does contain "cash". Rename it and the old code reported both tiles
+  -- correctly, which is what proved the name was the cause.
+  perform pg_temp.expect(
+    (select g.ledger_role = 'cash_bank' and g.name ilike '%cash%'
+     from public.account_groups g where g.id = current_setting('test.tiles_cc_group')::uuid),
+    'the cash credit group is a cash/bank group whose name contains "cash"'
+  );
+  perform pg_temp.expect(
+    (select tb.credit_balance from public.get_trial_balance(v_company, '2026-06-30') tb
+     where tb.ledger_id = current_setting('test.tiles_cc')::uuid) = 184240.00,
+    'and the account in it really is 184240 overdrawn, by the Trial Balance'
+  );
+
+  select * into d from public.get_dashboard_summary(v_company, '2026-06-30');
+
+  perform pg_temp.expect(d.bank_balance = -164240.00,
+    format('an overdrawn cash credit account is a bank overdraft: 20000 less 184240 (%s)', d.bank_balance));
+  perform pg_temp.expect(d.cash_in_hand = 6500.00,
+    format('and no part of it is physical cash, which is still the 6500 in the two tills (%s)', d.cash_in_hand));
+  perform pg_temp.expect(d.bank_balance_change = -1000.00,
+    format('the month''s drawing on it moves the bank tile (%s)', d.bank_balance_change));
+  perform pg_temp.expect(d.cash_in_hand_change = 0.00,
+    format('and leaves the cash tile alone, because no cash moved (%s)', d.cash_in_hand_change));
+end;
+$$;
+
+-- ------------- 36. and a till is still a till, and the two tiles still add up
+
+\echo '36. And a real cash ledger is still cash, and the tiles still sum to the same total'
+
+-- The half that stops the fix from being an over-correction. Whatever rule
+-- separates the two tiles, it has to leave a genuine cash-in-hand ledger where
+-- it was, has to keep working for a company that renamed its cash group, and
+-- must not change the total the two tiles add up to -- that total is the
+-- Trial Balance's, and it was the one thing the old split got right.
+--
+-- The rule the database uses is the one lib/ledgers/party-type.ts already used
+-- to decide which group a new ledger is filed in: a bank word wins, then a
+-- cash word, then bank. The two must agree or the app files a ledger one way
+-- and reports it the other, so the database's half is asserted here by name.
+
+do $$
+declare
+  v_company uuid := current_setting('test.tiles_company')::uuid;
+  d record;
+  v_tb_total numeric;
+begin
+  perform pg_temp.expect(
+    (select tb.debit_balance from public.get_trial_balance(v_company, '2026-06-30') tb
+     where tb.ledger_id = current_setting('test.tiles_till')::uuid) = 5000.00
+    and (select tb.debit_balance from public.get_trial_balance(v_company, '2026-06-30') tb
+         where tb.ledger_id = current_setting('test.tiles_petty')::uuid) = 1500.00,
+    'the seeded till holds 5000 and the renamed one 1500'
+  );
+
+  select * into d from public.get_dashboard_summary(v_company, '2026-06-30');
+
+  perform pg_temp.expect(d.cash_in_hand = 6500.00,
+    'a genuine cash-in-hand ledger is still reported as cash');
+  perform pg_temp.expect(
+    (select public.is_cash_group_name(g.name) from public.account_groups g
+     where g.id = current_setting('test.tiles_petty_group')::uuid),
+    'and so is one in a group a company renamed "Petty Cash"'
+  );
+  perform pg_temp.expect(
+    (select not public.is_cash_group_name(g.name) from public.account_groups g
+     where g.id = current_setting('test.tiles_cc_group')::uuid),
+    'while "Cash Credit Accounts" is a bank group, which is where the two tiles differ'
+  );
+  perform pg_temp.expect(
+    public.is_cash_group_name('Bank Accounts') = false
+    and public.is_cash_group_name('Cash-in-Hand') = true
+    and public.is_cash_group_name('HDFC Overdraft') = false
+    and public.is_cash_group_name('Provisions') = false,
+    'the rule reads: a bank word first, then a cash word, then bank -- the same order party-type.ts uses'
+  );
+
+  -- The sum is the invariant the split cannot be allowed to break: whichever
+  -- side each ledger lands on, the two tiles together are the Trial Balance's
+  -- cash and bank figure.
+  select coalesce(sum(tb.debit_balance - tb.credit_balance), 0) into v_tb_total
+  from public.get_trial_balance(v_company, '2026-06-30') tb
+  join public.ledgers l on l.id = tb.ledger_id
+  join public.account_groups g on g.id = l.group_id
+  where g.ledger_role = 'cash_bank';
+
+  perform pg_temp.expect(v_tb_total = -157740.00,
+    format('the Trial Balance''s cash and bank ledgers come to -157740 (%s)', v_tb_total));
+  perform pg_temp.expect(d.cash_in_hand + d.bank_balance = v_tb_total,
+    format('and the two tiles still sum to exactly that (%s)', d.cash_in_hand + d.bank_balance));
+
+  -- Gross movement is a property of the ledgers, not of the split, so it must
+  -- be untouched by any of this.
+  perform pg_temp.expect(d.month_inflow = 0.00 and d.month_outflow = 1000.00,
+    format('and the month''s movement is unchanged by the split (%s in, %s out)', d.month_inflow, d.month_outflow));
+end;
+$$;
+
+-- ------------- 37. a figure about a period counts everything that period had
+
+\echo '37. The dashboard''s change and movement figures are about a period, not about today'
+
+-- 0017 gave get_dashboard_summary the rule "active, or holding money", tested
+-- against the balance TODAY, and hung all six figures off it. That is right
+-- for the two balance tiles and wrong for the other four: a bank account
+-- emptied this month and then closed has no balance today, so it dropped out
+-- and took its history with it.
+--
+-- The bank change tile then read +700 on a month in which the banks went down
+-- by 49,300, and the 50,000 that left the bank vanished from the outflow
+-- figure while the same 50,000 arriving in cash stayed in the inflow one -- so
+-- the month appeared to have created money.
+--
+-- The predicate is gone rather than moved. It never affected the two balance
+-- tiles it was written for: a ledger it excludes is by definition sitting at
+-- nil on the as-of date, so it contributes nothing to a balance either way.
+
+do $$
+declare
+  v_company uuid;
+  v_group uuid;
+  v_cash uuid; v_bank uuid; v_capital uuid;
+begin
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Tiles History Co', '2025-04-01', 4, 'INR') returning id into v_company;
+  perform app_private.seed_chart_of_accounts(v_company);
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ TH Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Bank Accounts';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ TH Bank Closed') returning id into v_bank;
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Capital Account';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ TH Capital') returning id into v_capital;
+
+  perform public.create_voucher(v_company, 'receipt', '2026-05-10', 'ZZ TH capital paid into the bank', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_bank,    'debit_amount', 50000, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_capital, 'debit_amount', 0, 'credit_amount', 50000, 'line_order', 1)));
+
+  -- Emptied this month, into the till.
+  perform public.create_voucher(v_company, 'contra', '2026-06-05', 'ZZ TH account closed, balance drawn out', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_cash, 'debit_amount', 50000, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_bank, 'debit_amount', 0, 'credit_amount', 50000, 'line_order', 1)));
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  -- At nil now, so 0017's deactivation guard permits retiring it.
+  update public.ledgers set is_active = false where id = v_bank;
+
+  perform set_config('test.hist_company', v_company::text, false);
+  perform set_config('test.hist_cash', v_cash::text, false);
+  perform set_config('test.hist_bank', v_bank::text, false);
+end;
+$$;
+
+do $$
+declare
+  v_company uuid := current_setting('test.hist_company')::uuid;
+  d record;
+  v_tb_total numeric;
+begin
+  -- Not vacuous: inactive, at nil today, and holding 50000 a month ago.
+  perform pg_temp.expect(
+    (select not l.is_active from public.ledgers l where l.id = current_setting('test.hist_bank')::uuid),
+    'the closed bank account really is inactive'
+  );
+  perform pg_temp.expect(
+    coalesce((select tb.debit_balance - tb.credit_balance from public.get_trial_balance(v_company, '2026-06-30') tb
+              where tb.ledger_id = current_setting('test.hist_bank')::uuid), 0) = 0.00,
+    'and really is at nil today'
+  );
+  perform pg_temp.expect(
+    (select tb.debit_balance from public.get_trial_balance(v_company, '2026-05-31') tb
+     where tb.ledger_id = current_setting('test.hist_bank')::uuid) = 50000.00,
+    'but really did hold 50000 at the end of last month'
+  );
+
+  select * into d from public.get_dashboard_summary(v_company, '2026-06-30');
+
+  -- The two balance tiles are unaffected, which is what makes dropping the
+  -- predicate safe rather than a second change smuggled in beside the first.
+  perform pg_temp.expect(d.bank_balance = 0.00 and d.cash_in_hand = 50000.00,
+    format('the balance tiles are unchanged by any of this (%s cash, %s bank)', d.cash_in_hand, d.bank_balance));
+
+  select coalesce(sum(tb.debit_balance - tb.credit_balance), 0) into v_tb_total
+  from public.get_trial_balance(v_company, '2026-06-30') tb
+  join public.ledgers l on l.id = tb.ledger_id
+  join public.account_groups g on g.id = l.group_id
+  where g.ledger_role = 'cash_bank';
+  perform pg_temp.expect(d.cash_in_hand + d.bank_balance = v_tb_total,
+    'and still sum to the Trial Balance''s cash and bank figure');
+
+  -- The four that were wrong.
+  perform pg_temp.expect(d.bank_balance_change = -50000.00,
+    format('the bank change tile says the banks are down 50000, because they are (%s)', d.bank_balance_change));
+  perform pg_temp.expect(d.cash_in_hand_change = 50000.00,
+    format('and the cash tile says the till is up by the same (%s)', d.cash_in_hand_change));
+  perform pg_temp.expect(d.month_outflow = 50000.00,
+    format('the 50000 that left the bank is counted as it left (%s)', d.month_outflow));
+  perform pg_temp.expect(d.month_inflow = 50000.00,
+    format('against the 50000 that arrived in cash, so the month created no money (%s)', d.month_inflow));
+end;
+$$;
+
 \echo ''
 \echo 'ALL GUARANTEES HELD'
 
