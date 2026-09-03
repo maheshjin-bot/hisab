@@ -411,6 +411,114 @@ export async function getInvoiceDocument(
   };
 }
 
+/* ------------------------------------------------ the duplicate-bill guard */
+
+/**
+ * Everything the lookup needs to know about the purchase being entered.
+ *
+ * `partyLedgerId` is the supplier, and it is the form's live value rather than
+ * anything stored: on a new bill nothing is stored yet, and on an edit the
+ * user may have just changed who the bill is from.
+ */
+export interface DuplicateBillProbe {
+  companyId: string;
+  partyLedgerId: string | null | undefined;
+  referenceNumber: string | null | undefined;
+  voucherDate: string | null | undefined;
+  /** The voucher being edited, so an invoice does not report itself. */
+  excludeVoucherId?: string | null;
+}
+
+/** A purchase already on the books carrying this supplier's bill number. */
+export interface DuplicateBill {
+  voucherId: string;
+  voucherNumber: string;
+  voucherDate: string;
+  totalAmount: number;
+  referenceNumber: string | null;
+}
+
+/**
+ * `INV-001`, `inv-001` and ` INV-001 ` are one bill.
+ *
+ * This is the client's copy of the migration's `upper(btrim(...))`, and it
+ * exists only to decide whether two things the *form* holds are the same
+ * question — never to normalise anything sent to the database, which does its
+ * own and is the single definition of what "the same bill" means.
+ *
+ * Whitespace inside the number is kept. 'INV 001' and 'INV  001' are not
+ * obviously one label, and collapsing them would hide a real bill behind a
+ * false match — the one direction this feature must not fail in.
+ */
+export function normalizeBillReference(reference: string | null | undefined): string {
+  return (reference ?? "").trim().toUpperCase();
+}
+
+/**
+ * A stable identity for one duplicate-bill question, or null when there is no
+ * question worth asking.
+ *
+ * Null for a missing supplier, a missing date and a blank bill number: most
+ * purchases carry no reference at all, and two vouchers nobody wrote a number
+ * on are two vouchers, not one bill entered twice. The database ignores them
+ * as well (see 0024) — this is what keeps the round trip from being made in
+ * the first place.
+ *
+ * The key is also what the warning is held against, so that typing on after a
+ * lookup clears a warning that no longer describes what is on screen.
+ */
+export function duplicateBillProbeKey(probe: DuplicateBillProbe): string | null {
+  const reference = normalizeBillReference(probe.referenceNumber);
+  if (!probe.companyId || !probe.partyLedgerId || !probe.voucherDate || !reference) return null;
+  return [probe.companyId, probe.partyLedgerId, reference, probe.voucherDate, probe.excludeVoucherId ?? ""].join(" ");
+}
+
+/**
+ * The purchase this bill number is already on, if there is one.
+ *
+ * A warning and not a rule: nothing here refuses a save, and the caller is
+ * expected to show what comes back and then let the user save anyway. Two
+ * suppliers do issue the same number, and the person with both documents in
+ * front of them is the one who can tell.
+ *
+ * Returns the earliest match — `find_duplicate_bill` orders by date — because
+ * the entry the books have had longest is the one a user is most likely to
+ * recognise.
+ *
+ * An error is thrown, never swallowed into "no duplicate found": a lookup that
+ * failed and a bill that is genuinely new must not look the same, or a broken
+ * guard becomes a silent all-clear.
+ */
+export async function findDuplicateBill(
+  supabase: SupabaseClient<Database>,
+  probe: DuplicateBillProbe
+): Promise<DuplicateBill | null> {
+  if (duplicateBillProbeKey(probe) === null) return null;
+
+  const { data, error } = await supabase.rpc("find_duplicate_bill", {
+    p_company_id: probe.companyId,
+    p_party_ledger_id: probe.partyLedgerId as string,
+    // Sent as typed. The normalisation is the migration's, on the index and
+    // the lookup together; doing it again here would be a second definition to
+    // keep in step.
+    p_reference_number: probe.referenceNumber as string,
+    p_voucher_date: probe.voucherDate as string,
+    p_exclude_voucher_id: nullable(probe.excludeVoucherId),
+  });
+  if (error) throw error;
+
+  const first = (data ?? [])[0];
+  if (!first) return null;
+
+  return {
+    voucherId: first.voucher_id,
+    voucherNumber: first.voucher_number,
+    voucherDate: first.voucher_date,
+    totalAmount: first.total_amount,
+    referenceNumber: first.reference_number,
+  };
+}
+
 export interface VoucherCsvLine {
   /** 1-based, header = row 1 — the number the user sees in Excel. */
   rowNumber: number;
