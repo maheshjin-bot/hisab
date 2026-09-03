@@ -219,7 +219,7 @@ describe("matchStatementLines — shape of the result", () => {
   // line, which is the real finding of the reconciliation. Message-only: no
   // wrong data is written, which is why it is ranked last of the match
   // findings.
-  it.skip("does not tell a line to pick between vouchers that are already taken", () => {
+  it("does not tell a line to pick between vouchers that are already taken", () => {
     const results = matchStatementLines(
       [withdrawal("L1", "2026-04-10"), withdrawal("L2", "2026-04-11"), withdrawal("L3", "2026-04-12")],
       [payment("V1", "2026-04-10"), payment("V2", "2026-04-11")]

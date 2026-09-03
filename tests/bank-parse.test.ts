@@ -218,25 +218,22 @@ describe("readStatement — rows it must refuse", () => {
     expect(result.issues[0]).toContain('"Credit"');
   });
 
-  // FAILS: the rows below the last row with a readable date are dropped
-  // silently. This returns lines.length === 2 and errors === [] — the ₹5,000
-  // withdrawal on 31 February is simply not there. It should be reported as an
-  // error on row 4, the way the same row is when a good row follows it.
+  // The pair to "stops at the summary block" above: the same tail rows, read
+  // the other way. readStatement scans up from the end for the last row whose
+  // date parses, and once dropped everything below it — which could not tell a
+  // summary row from a transaction whose own date is unreadable.
   //
-  // readStatement scans upward from the end of the grid for the last row whose
-  // date parses, and iterates only as far as that row. The scan exists for a
-  // good reason — it is what stops the "Opening Balance" summary block being
-  // reported as broken rows — but it cannot tell a summary row from a
-  // transaction whose date is unreadable, so anything after the last good date
-  // is treated as the end of the file.
+  // What that cost: a statement whose final transactions carry impossible or
+  // malformed dates (31/02, a 29 February in a non-leap year, a footer the
+  // bank inserted between transactions) imported short, and because the
+  // preview counted the same rows it imported, nothing looked wrong. The user
+  // reconciled a month missing its last transactions and the closing balance
+  // was out by exactly them.
   //
-  // Consequence: a statement whose final transactions carry impossible or
-  // malformed dates (31/02, a 29 February in a non-leap year, a footer row the
-  // bank inserted mid-transaction) imports short, and the count in the preview
-  // agrees with the count that was imported, so nothing looks wrong. The user
-  // reconciles a month that is missing its last transactions and the closing
-  // balance is out by exactly them.
-  it.skip("reports an unreadable date in the last row rather than dropping it", () => {
+  // The tail pass now separates the two by money — a summary row carries a
+  // balance, a transaction carries an amount — so this row is reported and the
+  // Axis summary block above still isn't.
+  it("reports an unreadable date in the last row rather than dropping it", () => {
     const result = readStatement(
       grid([
         ["01/04/2026", "GOOD", "100.00", ""],
@@ -250,22 +247,18 @@ describe("readStatement — rows it must refuse", () => {
     expect(result.errors.map((e) => e.lineNumber)).toEqual([4]);
   });
 
-  // FAILS: a file where no row's date parses under the profile returns
-  // { lines: [], errors: [], issues: [] } — a completely silent no-op. It
-  // should report that it could not read any dates.
+  // Same root cause as above, at its limit: with no dated row anywhere,
+  // lastDatedRow stayed at the header row, the loop body never ran, and
+  // readStatement returned { lines: [], errors: [], issues: [] } — a silent
+  // no-op on a file full of perfectly good transactions.
   //
-  // Same root cause as above: with no dated row anywhere, lastDatedRow stays at
-  // the header row and the loop body never runs, so not one row is examined and
-  // not one error is produced.
-  //
-  // Consequence: the case that reaches this is a saved profile whose dateFormat
-  // no longer matches the file — the user switched from the bank's CSV export
+  // What that cost: the case that reaches this is a saved profile whose
+  // dateFormat no longer matches — the user moved from the bank's CSV export
   // (dd/mm/yyyy) to its XLS export (mm/dd/yyyy), or the bank changed it. The
-  // import screen shows nothing found, no errors and no warnings, and gives the
-  // user no way to work out that the date format is the thing to change. The
-  // one file-level check that would have caught it (the balance continuity
-  // check) needs three parsed lines to run.
-  it.skip("says something when it could not read a single date in the file", () => {
+  // screen showed nothing found, no errors and no warnings, and no way to work
+  // out that the date format was the thing to change. The one file-level check
+  // that would have caught it, balance continuity, needs three parsed lines.
+  it("says something when it could not read a single date in the file", () => {
     const result = readStatement(
       grid([
         ["13/04/2026", "GOOD", "100.00", ""],
@@ -369,7 +362,7 @@ describe("readStatement — signed_single", () => {
   // reading it as another charge gets the direction wrong and doubles the error
   // in the balance. The balance-continuity check does catch it as a warning, so
   // it is not silent; ranked accordingly.
-  it.skip("reads a negative in the withdrawal column as the reversal it is", () => {
+  it("reads a negative in the withdrawal column as the reversal it is", () => {
     const result = readStatement(
       grid([
         ["01/04/2026", "SMS CHARGES", "500.00", ""],
@@ -381,6 +374,29 @@ describe("readStatement — signed_single", () => {
     expect(result.lines.map((l) => [l.withdrawalPaise, l.depositPaise])).toEqual([
       [50000, 0],
       [0, 50000],
+    ]);
+  });
+
+  // The other half of the rule above, and the reason it is decided per column
+  // rather than per row. A file that writes every withdrawal with a minus is
+  // not reversing anything — the sign is the column's house style, and the
+  // column already carries the direction. Reading each minus as a reversal
+  // would invert the direction of the whole statement, which is a far worse
+  // failure than the single misread row the reversal case costs.
+  it("ignores a minus in a column where every value carries one", () => {
+    const result = readStatement(
+      grid([
+        ["01/04/2026", "SMS CHARGES", "-500.00", ""],
+        ["02/04/2026", "SUPPLIER PAYMENT", "-25,000.00", ""],
+        ["03/04/2026", "CLIENT RECEIPT", "", "1,50,000.00"],
+      ]),
+      SIMPLE,
+      0
+    );
+    expect(result.lines.map((l) => [l.withdrawalPaise, l.depositPaise])).toEqual([
+      [50000, 0],
+      [2500000, 0],
+      [0, 15000000],
     ]);
   });
 });
@@ -526,7 +542,7 @@ describe("readStatement — duplicate header text", () => {
   // show two different headers — they just happen to read the same. Loud rather
   // than silent, which is why it is ranked below the wrong-data findings, but
   // the message actively sends the user in the wrong direction.
-  it.skip("explains a mapping where two fields resolve to the same column", () => {
+  it("explains a mapping where two fields resolve to the same column", () => {
     const rows = [
       ["Date", "Narration", "Amount", "Amount"],
       ["01/04/2026", "PAID SUPPLIER", "25,000.00", ""],
@@ -643,7 +659,7 @@ describe("locateHeaderRow", () => {
   // whole rows rather than looking for one cell; it only breaks once the
   // profile has been saved and is being reused, which is every upload after the
   // first.
-  it.skip("does not mistake a labelled preamble cell for the header row", () => {
+  it("does not mistake a labelled preamble cell for the header row", () => {
     const withStamp = [
       ["ACME TRADING PVT LTD", "", "", "", ""],
       ["Date", "17/08/2026", "", "", ""],

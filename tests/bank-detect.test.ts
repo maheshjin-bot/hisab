@@ -194,29 +194,26 @@ describe("detectStatementFormat — the profile has to survive the round trip", 
     expect(result.lines.every((l) => l.narration !== "")).toBe(true);
   });
 
-  // FAILS: an unlabelled narration column is detected by content and then
-  // recorded in the profile as narrationColumns: [""], which resolves to
-  // nothing at parse time. Every line comes back with narration: "" and the
-  // fingerprints collapse to "2026-04-01|W|48200||0". It should either record
-  // the column in a way parse.ts can find, or not claim it at all and warn.
+  // An unlabelled narration column is detected by content alone (see
+  // pickColumn's deliberate exception for narration) and used to be recorded
+  // as narrationColumns: [""], which resolved to nothing at parse time —
+  // every line came back with narration: "" and the fingerprint collapsed to
+  // "2026-04-01|W|48200||0". No error, no warning either: the "Could not find
+  // a description column" warning was never emitted, because a column *was*
+  // found — it just could not be addressed.
   //
-  // pickColumn() deliberately allows a narration column with no header at all
-  // ("a bank occasionally leaves the column unlabelled entirely") and scores it
-  // purely on content. But the profile addresses columns by header text — by
-  // design, so that a bank adding a column between exports doesn't shift every
-  // mapping by one — and buildColumnIndex() skips empty keys. There is no
-  // header text to record, so the mapping cannot be expressed.
+  // What that cost, before positionalColumnKey(): every posted voucher had an
+  // empty narration; suggest.ts had nothing to learn a rule from, so the
+  // account was never proposed and the next import was as manual as this one;
+  // and the fingerprint lost its strongest component, so two unrelated
+  // transactions of the same amount on the same day, in two different
+  // uploads, became indistinguishable and the second was dropped.
   //
-  // Consequence: no error, no warning. The "Could not find a description
-  // column" warning is not emitted, because a column *was* found. The preview
-  // shows a statement with a blank description on every row, which is easy to
-  // read as "this bank doesn't send descriptions". Then: every posted voucher
-  // has an empty narration; suggest.ts has nothing to learn a rule from, so the
-  // account never gets proposed and the second import is as manual as the
-  // first; and the fingerprint loses its strongest component, so two unrelated
-  // transactions of the same amount on the same day, arriving in two different
-  // uploads, become indistinguishable and the second is dropped.
-  it.skip("records an unlabelled narration column in a way parse.ts can resolve", () => {
+  // The profile still can't name this column — there is no name — so it is
+  // addressed by position instead, and a warning says so, since a position is
+  // the one part of this mapping that a bank reordering its columns can break
+  // without the saved profile noticing.
+  it("records an unlabelled narration column in a way parse.ts can resolve", () => {
     const unlabelled = [
       ["Date", "", "Withdrawal Amt", "Deposit Amt", "Balance"],
       ["01/04/2026", "UPI-SWIGGY-9871234@ybl-UTR991823", "482.00", "", "1,24,518.00"],

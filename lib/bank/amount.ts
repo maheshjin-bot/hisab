@@ -69,7 +69,19 @@ export function parseAmountCell(raw: string | undefined | null): ParsedAmount | 
   const value = Number(text);
   if (!Number.isFinite(value)) return null;
 
-  return { paise: toPaise(value), explicitSign, negative };
+  const paise = toPaise(value);
+  // Above roughly ₹90,00,00,00,00,000 the multiplication in toPaise leaves the
+  // safe-integer range, and Math.round hands back a float that only looks
+  // whole — its trailing digits are already gone. Refusing it is the same rule
+  // as the rest of this function: a cell whose value cannot be read exactly is
+  // not an amount, and returning it anyway would put a plausible-looking huge
+  // number into the line's fingerprint and into a numeric(18,2) column. The
+  // cell that actually reaches here is a mis-mapped one — an account number or
+  // a UTR read as the amount — and a rejected row says so where a silently
+  // rounded one does not.
+  if (!Number.isSafeInteger(paise)) return null;
+
+  return { paise, explicitSign, negative };
 }
 
 /**

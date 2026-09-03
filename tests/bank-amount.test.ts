@@ -126,7 +126,7 @@ describe("parseAmountCell — integer paise", () => {
   // as a plausible-looking huge amount rather than a rejected row. Ranked last
   // of the findings, because reaching it needs a column mapping that the
   // balance-continuity check would already be shouting about.
-  it.skip("rejects a digit run too large to be an exact amount", () => {
+  it("rejects a digit run too large to be an exact amount", () => {
     const parsed = parseAmountCell("1234567890123456789");
     if (parsed !== null) expect(Number.isSafeInteger(parsed.paise)).toBe(true);
   });

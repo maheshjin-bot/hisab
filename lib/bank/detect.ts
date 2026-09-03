@@ -1,5 +1,6 @@
 import { looksNumeric, parseAmountCell } from "./amount";
 import { detectDateFormat, looksLikeDate } from "./date";
+import { positionalColumnKey } from "./types";
 import type { AmountMode, StatementProfile } from "./types";
 
 /**
@@ -296,6 +297,15 @@ export function detectStatementFormat(grid: string[][], label: string): Detected
   }
   if (narrationIndex === null) {
     warnings.push("Could not find a description column — suggestions will be weaker without one.");
+  } else if (!headers[narrationIndex]) {
+    // A column can be claimed by content alone with no header text at all
+    // (see pickColumn) — recorded below by position, since there is no name
+    // to hold onto. That is weaker than a named mapping, and worth saying so:
+    // if this bank ever reorders its columns, this one mapping is the part
+    // of a saved profile most likely to go stale without anyone noticing.
+    warnings.push(
+      "The description column has no header of its own, so it is remembered by its position in the file — re-check this mapping if this bank ever reorders its columns."
+    );
   }
 
   const dateSamples = dateIndex !== null ? columnValues(dataRows, dateIndex) : [];
@@ -312,7 +322,8 @@ export function detectStatementFormat(grid: string[][], label: string): Detected
     label,
     dateColumn: nameOf(dateIndex) ?? "",
     valueDateColumn: nameOf(valueDateIndex),
-    narrationColumns: narrationIndex === null ? [] : [headers[narrationIndex]],
+    narrationColumns:
+      narrationIndex === null ? [] : [headers[narrationIndex] || positionalColumnKey(narrationIndex)],
     referenceColumn: nameOf(referenceIndex),
     balanceColumn: nameOf(balanceIndex),
     amountMode,

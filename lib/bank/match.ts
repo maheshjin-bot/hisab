@@ -155,18 +155,44 @@ export function matchStatementLines(
       lineId: line.id,
       matched,
       candidates: scored.map((entry) => entry.candidate),
-      reason: describe(matched, scored),
+      reason: describe(matched, scored, claimedVouchers),
     };
   });
 }
 
-function describe(matched: MatchCandidate | null, scored: ScoredCandidate[]): string {
+/**
+ * The line's own explanation of its result.
+ *
+ * `claimed` is not optional detail: a candidate another line has taken is not
+ * a choice this line can be offered. Branching on the scored list alone told a
+ * line to "pick one" of two vouchers that were both already gone — an
+ * instruction that fails when followed, because the unique index on
+ * matched_voucher_id exists precisely so a voucher cannot explain two lines.
+ * What the user needs to hear in that case is the actual finding of the
+ * reconciliation: the books are a voucher short for this line.
+ */
+function describe(
+  matched: MatchCandidate | null,
+  scored: ScoredCandidate[],
+  claimed: Set<string>
+): string {
   if (matched) {
     const gap = scored.find((entry) => entry.candidate.voucherId === matched.voucherId)?.dayGap ?? 0;
     if (gap === 0) return `Same amount and date as ${matched.voucherNumber}`;
     return `Same amount as ${matched.voucherNumber}, ${gap} day${gap === 1 ? "" : "s"} apart`;
   }
-  if (scored.length > 1) return `${scored.length} vouchers of this amount are equally close — pick one`;
+
+  const available = scored.filter((entry) => !claimed.has(entry.candidate.voucherId));
+  if (available.length > 1) return `${available.length} vouchers of this amount are equally close — pick one`;
+  // Left free by a tie that a later, lower-scoring pair then resolved in
+  // another line's favour. The voucher is still open, but it was never this
+  // line's on the evidence, so it is offered rather than asserted.
+  if (available.length === 1) {
+    return "A voucher of this amount is still unmatched, but it fits another line just as well — confirm it yourself";
+  }
+  if (scored.length > 1) {
+    return `${scored.length} vouchers of this amount are in the books, but other lines matched them first`;
+  }
   if (scored.length === 1) return "A voucher of this amount exists but another line matched it first";
   return "No voucher in the books matches this amount";
 }

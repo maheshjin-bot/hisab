@@ -122,6 +122,10 @@ export interface DateFormatGuess {
    * dd/mm and mm/dd indistinguishable. The UI has to ask rather than assume,
    * because guessing wrong here silently moves every transaction to a
    * different month.
+   *
+   * True, not false, for a column that spells its months out: `format` has no
+   * bearing on how those cells are read, so there is nothing for the user to
+   * settle.
    */
   unambiguous: boolean;
 }
@@ -139,11 +143,19 @@ export function detectDateFormat(samples: string[]): DateFormatGuess {
   let secondOver12 = false;
   let isoLike = 0;
   let considered = 0;
+  // Spelled months are skipped by the inference below — they carry no evidence
+  // about the ordering of an all-numeric date — but they are not *nothing*,
+  // and the count is what separates "no ordering evidence" from "no ordering
+  // question". See the return below.
+  let spelled = 0;
 
   for (const sample of samples) {
     const parts = splitParts(sample ?? "");
     if (!parts) continue;
-    if (parts.some((p) => MONTH_NAMES[p.slice(0, 3).toLowerCase()] !== undefined)) continue;
+    if (parts.some((p) => MONTH_NAMES[p.slice(0, 3).toLowerCase()] !== undefined)) {
+      spelled++;
+      continue;
+    }
     if (parts.some((p) => !/^\d+$/.test(p))) continue;
 
     considered++;
@@ -163,6 +175,17 @@ export function detectDateFormat(samples: string[]): DateFormatGuess {
   if (firstOver12 && secondOver12) return { format: "dmy", unambiguous: false };
   if (firstOver12) return { format: "dmy", unambiguous: true };
   if (secondOver12) return { format: "mdy", unambiguous: true };
+  // Not one numeric date in the column, and at least one spelled month: the
+  // ICICI-style export, where "01-Apr-2026" says what it is and the declared
+  // ordering never gets consulted. Reporting that as ambiguous asks the user a
+  // question about a file that contains nothing the answer could change — and
+  // an unanswerable warning on every import of a common format is how the one
+  // warning here that must not be clicked past stops being read.
+  //
+  // A column mixing spelled and numeric dates still falls through to the
+  // ambiguous return below, because the numeric half really does depend on
+  // the ordering.
+  if (considered === 0 && spelled > 0) return { format: "dmy", unambiguous: true };
   // Every day in the sample was 12 or below: dd/mm and mm/dd are genuinely
   // indistinguishable here, so the caller has to ask.
   return { format: "dmy", unambiguous: false };

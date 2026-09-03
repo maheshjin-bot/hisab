@@ -191,7 +191,7 @@ describe("detectDateFormat", () => {
   // the question is unanswerable and the setting it asks about has no effect on
   // how that file is read. It trains users to click past the one warning in the
   // importer that they must not click past when it is real.
-  it.skip("does not call a spelled-month column ambiguous", () => {
+  it("does not call a spelled-month column ambiguous", () => {
     expect(detectDateFormat(["01-Apr-2026", "15-Apr-2026", "24-Apr-2026"]).unambiguous).toBe(true);
   });
 });

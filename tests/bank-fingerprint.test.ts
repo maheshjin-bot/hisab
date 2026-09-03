@@ -54,46 +54,38 @@ describe("fingerprintNarration", () => {
     expect(fingerprintNarration("A".repeat(500))).toHaveLength(120);
   });
 
-  // FAILS: two different transactions whose narrations share their first 120
-  // characters produce the same fingerprintNarration, so they produce the same
-  // fingerprint. It should distinguish them.
+  // The cap is spent on both ends of the narration, not just the start, and
+  // this is why. A NEFT/RTGS narration carries the counterparty's registered
+  // name, branch and IFSC before it reaches the UTR, and routinely runs past
+  // the cap — so the only part that tells two transfers to the same payee
+  // apart sits beyond a plain head-truncation.
   //
-  // fingerprintNarration() ends in .slice(0, 120). A NEFT/RTGS narration
-  // carries the counterparty's full registered name, the branch and the IFSC
-  // before it reaches the UTR, and routinely runs past 120 characters — which
-  // puts the only part that differs between two transfers to the same
-  // counterparty beyond the cut.
-  //
-  // Consequence: the two transfers below are the same date, the same amount and
-  // the same direction, and they differ only in their reference. If they arrive
-  // in the same file, assignOccurrenceIndexes gives them 0 and 1 and they
-  // survive. If they arrive in two different uploads — the second is a later
-  // "last 90 days" pull, or the first was posted last week — both get
-  // occurrenceIndex 0, the fingerprints are identical, and
-  // bank_statement_lines_fingerprint_idx rejects the second insert. The user
-  // is told the line was already imported. A real ₹2,50,000 payment is missing
-  // from the books and nothing in the app says so.
-  it.skip("distinguishes two long narrations that differ only near the end", () => {
+  // What that cost: the two transfers below share a date, an amount and a
+  // direction. Arriving in one file, assignOccurrenceIndexes numbered them 0
+  // and 1 and both survived. Arriving in two uploads — a later "last 90 days"
+  // pull, or the first posted a week earlier — both took occurrenceIndex 0,
+  // the fingerprints matched, and bank_statement_lines_fingerprint_idx
+  // rejected the second as already imported. A real ₹2,50,000 payment went
+  // missing from the books with nothing in the app saying so.
+  it("distinguishes two long narrations that differ only near the end", () => {
     const prefix =
       "NEFT CR-HDFC0000456-RAJESH KUMAR TRADERS PRIVATE LIMITED-MUMBAI FORT BRANCH-SETTLEMENT FOR INVOICE BATCH APRIL-2026-REF";
     expect(prefix.length).toBe(119);
     expect(fingerprintNarration(`${prefix}00991`)).not.toBe(fingerprintNarration(`${prefix}00992`));
   });
 
-  // FAILS: fingerprintNarration("भुगतान राजेश ट्रेडर्स") returns "". It should
-  // return something that distinguishes it from any other narration.
+  // The normalizer matches letters by Unicode property rather than A-Z, and
+  // this is why. An earlier .replace(/[^A-Z0-9]+/g, " ") discarded every
+  // non-ASCII character, so a narration written wholly in Devanagari (or
+  // Tamil, or Gujarati) reduced to the empty string.
   //
-  // The normalizer is .replace(/[^A-Z0-9]+/g, " ") after .toUpperCase(), so
-  // every non-ASCII character is discarded. A narration written wholly in
-  // Devanagari (or Tamil, or Gujarati) reduces to the empty string.
-  //
-  // Consequence: for regional-language statements the narration contributes
-  // nothing to the fingerprint, which collapses to date + direction + amount +
+  // What that cost: for regional-language statements the narration contributed
+  // nothing, and the fingerprint collapsed to date + direction + amount +
   // occurrence index. Two unrelated ₹5,000 payments on the same day, in two
-  // different uploads, are then indistinguishable and the second is dropped as
-  // a duplicate. Same silent loss as the truncation case above, but it needs no
-  // unusual length — only a bank that narrates in the local script.
-  it.skip("keeps a non-Latin narration distinguishable", () => {
+  // different uploads, became indistinguishable and the second was dropped as
+  // a duplicate — the same silent loss as the truncation case above, but
+  // needing no unusual length, only a bank that narrates in the local script.
+  it("keeps a non-Latin narration distinguishable", () => {
     const a = fingerprintNarration("भुगतान राजेश ट्रेडर्स");
     const b = fingerprintNarration("भुगतान अक्मे एक्सपोर्ट्स");
     expect(a).not.toBe("");
