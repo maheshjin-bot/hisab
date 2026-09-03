@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   BookText,
+  HandCoins,
   FolderTree,
   Receipt,
   CalendarDays,
@@ -32,6 +33,9 @@ interface NavItem {
 function navItems(companyId: string): NavItem[] {
   return [
     { href: `/${companyId}/dashboard`, label: "Dashboard", icon: LayoutDashboard },
+    // Daily work, not a year-end statement — it belongs beside the dashboard
+    // rather than at the bottom of Reports with the Balance Sheet.
+    { href: `/${companyId}/outstanding`, label: "Who Owes Me", icon: HandCoins },
     { href: `/${companyId}/ledgers`, label: "Parties & Ledgers", icon: BookText },
     { href: `/${companyId}/groups`, label: "Account Groups", icon: FolderTree },
     { href: `/${companyId}/vouchers`, label: "Vouchers", icon: Receipt },
