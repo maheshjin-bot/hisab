@@ -46,7 +46,10 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Vouchers</h1>
-          <p className="text-sm text-muted-foreground">Every payment, receipt, sale, purchase, contra and journal entry.</p>
+          <p className="text-sm text-muted-foreground">
+            Every entry you have recorded — money in, money out, sale bills, purchase bills, transfers and
+            adjustments.
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>

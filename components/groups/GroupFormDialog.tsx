@@ -187,7 +187,7 @@ export function GroupFormDialog({
               />
               <FieldDescription>
                 Decides which voucher fields offer this group&apos;s ledgers. A group left on
-                &ldquo;Other&rdquo; won&apos;t appear in a Payment&apos;s cash leg.
+                &ldquo;Other&rdquo; won&apos;t be offered as the cash or bank account on a Money Out entry.
               </FieldDescription>
             </Field>
           </FieldGroup>

@@ -79,8 +79,8 @@ export default function DashboardPage({ params }: PageProps<"/[companyId]/dashbo
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <QuickActionButton href={`/${companyId}/vouchers/new/sales`} icon={ShoppingCart} label="Record Sale" />
-        <QuickActionButton href={`/${companyId}/vouchers/new/purchase`} icon={ShoppingBag} label="Record Purchase" />
+        <QuickActionButton href={`/${companyId}/vouchers/new/sales`} icon={ShoppingCart} label="New Sale Bill" />
+        <QuickActionButton href={`/${companyId}/vouchers/new/purchase`} icon={ShoppingBag} label="New Purchase Bill" />
         <QuickActionButton href={`/${companyId}/ledgers?new=1`} icon={BookText} label="Add Ledger" />
         <QuickActionButton href={`/${companyId}/ledgers?import=1`} icon={UploadCloud} label="CSV Import / Export" />
       </div>

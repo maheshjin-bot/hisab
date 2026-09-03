@@ -15,6 +15,7 @@ export function VoucherPartyField({
   onKeyDown,
   autoFocus,
   initialLedgerName,
+  onLedgerPicked,
 }: {
   companyId: string;
   control: Control<VoucherFormValues>;
@@ -24,6 +25,8 @@ export function VoucherPartyField({
   autoFocus?: boolean;
   /** Label to show before the user picks — the existing ledger when editing. */
   initialLedgerName?: string;
+  /** The form keeps the picked ledger's role, which the id alone doesn't carry — see F-18. */
+  onLedgerPicked?: (ledger: LedgerSearchResult) => void;
 }) {
   return (
     <Field>
@@ -36,7 +39,10 @@ export function VoucherPartyField({
             companyId={companyId}
             value={field.value}
             displayName={initialLedgerName}
-            onSelect={(ledger: LedgerSearchResult) => field.onChange(ledger.id)}
+            onSelect={(ledger: LedgerSearchResult) => {
+              onLedgerPicked?.(ledger);
+              field.onChange(ledger.id);
+            }}
             sideRule={sideRule}
             triggerRef={triggerRef}
             onKeyDown={onKeyDown}

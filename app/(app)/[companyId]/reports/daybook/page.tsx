@@ -11,6 +11,8 @@ import { useDaybookQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getDaybook } from "@/lib/supabase/queries/reports";
 import { formatCurrency } from "@/lib/utils/currency";
+import { VOUCHER_TYPE_CONFIG } from "@/lib/voucher/voucher-type-config";
+import type { VoucherType } from "@/lib/supabase/queries/vouchers";
 import { rangePeriod } from "@/lib/utils/statement-period";
 
 export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/daybook">) {
@@ -74,7 +76,7 @@ export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/
               {data?.map((row) => (
                 <tr key={row.voucherId} className="border-t hover:bg-muted/30">
                   <td className="p-2.5 text-muted-foreground">{row.voucherDate}</td>
-                  <td className="p-2.5 capitalize">{row.voucherType}</td>
+                  <td className="p-2.5">{VOUCHER_TYPE_CONFIG[row.voucherType as VoucherType]?.label ?? row.voucherType}</td>
                   <td className="p-2.5">
                     <Link href={`/${companyId}/vouchers/${row.voucherId}/edit`} className="font-mono text-xs text-primary hover:underline">
                       {row.voucherNumber}

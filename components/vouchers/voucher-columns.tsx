@@ -4,6 +4,7 @@ import { createAppColumnHelper } from "@/components/data-table/table-features";
 import type { VoucherListItem } from "@/lib/supabase/queries/vouchers";
 import { formatCurrency } from "@/lib/utils/currency";
 import { Badge } from "@/components/ui/badge";
+import { VOUCHER_TYPE_CONFIG } from "@/lib/voucher/voucher-type-config";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -22,11 +23,9 @@ export function buildVoucherColumns(companyId: string, onDelete: (voucher: Vouch
     }),
     columnHelper.accessor("voucherType", {
       header: "Type",
-      cell: (info) => (
-        <Badge variant="secondary" className="capitalize">
-          {info.getValue()}
-        </Badge>
-      ),
+      // The stored word ("sales", "contra") is not what the rest of the app
+      // calls it, and this column used to print it raw.
+      cell: (info) => <Badge variant="secondary">{VOUCHER_TYPE_CONFIG[info.getValue()].label}</Badge>,
     }),
     columnHelper.accessor("voucherNumber", {
       header: "Number",

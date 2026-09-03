@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PrintButton } from "@/components/reports/PrintButton";
 import { InvoiceDocument } from "@/components/vouchers/InvoiceDocument";
 import { useInvoiceDocumentQuery } from "@/hooks/useVouchersQuery";
+import { VOUCHER_TYPE_CONFIG } from "@/lib/voucher/voucher-type-config";
 
 export default function InvoicePage({ params }: PageProps<"/[companyId]/vouchers/[voucherId]/invoice">) {
   const { companyId, voucherId } = use(params);
@@ -64,7 +65,7 @@ export default function InvoicePage({ params }: PageProps<"/[companyId]/vouchers
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
             {isInvoiceable
               ? "It was entered as a plain voucher — a total against two ledgers, with no descriptions, quantities or rates. Delete it and re-enter it to get a printable invoice."
-              : `A ${voucher.voucherType} is not an invoice. Only sales and purchase vouchers carry invoice lines.`}
+              : `A ${VOUCHER_TYPE_CONFIG[voucher.voucherType].label} entry is not a bill. Only sale bills and purchase bills carry itemised lines.`}
           </p>
         </div>
       )}

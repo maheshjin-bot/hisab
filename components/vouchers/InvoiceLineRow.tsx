@@ -34,6 +34,8 @@ export interface InvoiceLineRowProps {
   autoFocusDescription?: boolean;
   /** Label to show before the user picks — the existing ledger when editing. */
   initialLedgerName?: string;
+  /** The form keeps the picked ledger's role, which the id alone doesn't carry — see F-18. */
+  onLedgerPicked?: (ledger: LedgerSearchResult) => void;
 }
 
 export function InvoiceLineRow({
@@ -49,6 +51,7 @@ export function InvoiceLineRow({
   onCellKeyDown,
   autoFocusDescription,
   initialLedgerName,
+  onLedgerPicked,
 }: InvoiceLineRowProps) {
   return (
     <div className={`grid ${INVOICE_GRID_COLUMNS} items-center gap-2 py-1.5 transition-colors hover:bg-muted/30`}>
@@ -80,7 +83,10 @@ export function InvoiceLineRow({
             companyId={companyId}
             value={field.value}
             displayName={initialLedgerName}
-            onSelect={(ledger: LedgerSearchResult) => field.onChange(ledger.id)}
+            onSelect={(ledger: LedgerSearchResult) => {
+              onLedgerPicked?.(ledger);
+              field.onChange(ledger.id);
+            }}
             sideRule={revenueRule}
             triggerRef={registerCell(rowId, "ledger")}
             onKeyDown={(e) => onCellKeyDown(e, rowId, "ledger")}

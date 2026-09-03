@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
@@ -13,13 +13,16 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { SmartDateInput } from "@/components/common/SmartDateInput";
 import { VoucherPartyField } from "./VoucherPartyField";
 import { VoucherLineRow } from "./VoucherLineRow";
+import { DuplicateBillWarning } from "./DuplicateBillWarning";
 import { VoucherTotalsBar } from "./VoucherTotalsBar";
-import { VOUCHER_TYPE_CONFIG } from "@/lib/voucher/voucher-type-config";
+import { UnexpectedLedgerDialog } from "./UnexpectedLedgerDialog";
+import { roleMismatch, VOUCHER_TYPE_CONFIG, type LedgerRoleMismatch } from "@/lib/voucher/voucher-type-config";
 import { buildVoucherSchema, type VoucherFormValues, type VoucherLineFormValues } from "@/lib/voucher/voucher-schema";
 import { useKeyboardGrid } from "@/lib/keyboard/useKeyboardGrid";
 import { useShortcutScopeStore } from "@/stores/useShortcutScopeStore";
 import { useCreateVoucherMutation, useUpdateVoucherMutation } from "@/hooks/useVouchersQuery";
 import { sumPaise, toPaise, fromPaise } from "@/lib/utils/currency";
+import type { LedgerSearchResult } from "@/lib/supabase/queries/ledgers";
 import type { VoucherType } from "@/lib/supabase/queries/vouchers";
 import type { VoucherWithLines } from "@/lib/supabase/queries/vouchers";
 
@@ -80,6 +83,37 @@ export function VoucherForm({
   const { fields, append, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = useWatch({ control, name: "lines" }) ?? [];
 
+  // F-18. The form stores a ledger id; the *role* that decides whether the pick
+  // makes sense only comes back on the combobox selection, so it is kept here
+  // as it is chosen. Keyed by id rather than by row, since rows move.
+  //
+  // A line left untouched while editing an old voucher therefore has no role
+  // here and cannot be judged — which is the right answer: the confirmation is
+  // for a choice being made now, not a re-interrogation of the books.
+  const [pickedLedgers, setPickedLedgers] = useState<Record<string, LedgerSearchResult>>({});
+  const rememberLedger = useCallback((ledger: LedgerSearchResult) => {
+    setPickedLedgers((prev) => (prev[ledger.id] === ledger ? prev : { ...prev, [ledger.id]: ledger }));
+  }, []);
+  const [pendingSave, setPendingSave] = useState<{ values: VoucherFormValues; mismatches: LedgerRoleMismatch[] } | null>(null);
+
+  // The other path to a purchase bill number. New purchases go to InvoiceForm,
+  // but the 57 vouchers entered before invoicing existed still open here and
+  // are still editable, and the reference on one of those is the same
+  // supplier's bill number it always was.
+  //
+  // The supplier is line 0's ledger, not vouchers.party_ledger_id: these
+  // vouchers have no party column value — the column arrived in 0022 and the
+  // rule that requires one applies only to vouchers with invoice lines, which
+  // these have none of. The fixed party row is where their supplier actually
+  // is, and it is what the lookup is given. Note the consequence, which is
+  // real and is documented in 0024: because those 57 store no party, they can
+  // never be *found* as the duplicate, only be the entry doing the finding.
+  const isPurchase = voucherType === "purchase";
+  const [billCheckToken, setBillCheckToken] = useState(0);
+  const watchedReference = useWatch({ control, name: "referenceNumber" });
+  const watchedDate = useWatch({ control, name: "voucherDate" });
+  const partyLedgerId = isSingleParty ? watchedLines[0]?.ledgerId : undefined;
+
   // Grid rows are every line except the fixed party line (index 0) in
   // single-party mode; all lines in full-grid mode.
   const gridStartIndex = isSingleParty ? 1 : 0;
@@ -135,7 +169,31 @@ export function VoucherForm({
     }
   }
 
-  async function onSubmit(values: VoucherFormValues) {
+  /**
+   * Every line's applicable side rule, derived exactly as the grid renders it —
+   * the party rule for the fixed row, the grid rule for the rest in
+   * single-party mode, and the row's own current side in full-grid mode.
+   */
+  function ruleForLine(values: VoucherFormValues, index: number) {
+    if (isSingleParty) return index === 0 ? partyRule : gridRule;
+    return (values.lines[index]?.creditAmount ?? 0) > 0 ? config.cr : config.dr;
+  }
+
+  function findRoleMismatches(values: VoucherFormValues): LedgerRoleMismatch[] {
+    return values.lines
+      .map((line, index) =>
+        roleMismatch(
+          ruleForLine(values, index),
+          pickedLedgers[line.ledgerId],
+          // The fixed party box isn't a numbered row; the grid starts at 1.
+          isSingleParty ? (index === 0 ? undefined : index) : index + 1
+        )
+      )
+      .filter((m): m is LedgerRoleMismatch => m !== null);
+  }
+
+  /** Throws on failure, so a confirmation dialog driving it stays open. */
+  async function save(values: VoucherFormValues) {
     const lines = values.lines.map((l, i) => ({ ...l, lineOrder: i }));
     try {
       if (voucherId) {
@@ -159,7 +217,19 @@ export function VoucherForm({
       router.push(`/${companyId}/vouchers`);
     } catch (err) {
       toast.error(toUserMessage(err, "Could not save voucher"));
+      throw err;
     }
+  }
+
+  async function onSubmit(values: VoucherFormValues) {
+    // F-18: a soft-filtered side still accepts any ledger — that stays — but a
+    // pick outside the expected roles now has to be confirmed by name first.
+    const mismatches = findRoleMismatches(values);
+    if (mismatches.length > 0) {
+      setPendingSave({ values, mismatches });
+      return;
+    }
+    await save(values).catch(() => {});
   }
 
   // Ctrl+Enter to save. Bound on the form rather than through
@@ -188,13 +258,31 @@ export function VoucherForm({
         <Field>
           <FieldLabel htmlFor="voucher-ref-number">Reference No.</FieldLabel>
           <input type="hidden" />
-          <RefField control={control} name="referenceNumber" id="voucher-ref-number" />
+          <RefField
+            control={control}
+            name="referenceNumber"
+            id="voucher-ref-number"
+            // On blur rather than on change: a bill number is looked up once
+            // the user has finished typing it, not once per character of one.
+            onBlur={isPurchase ? () => setBillCheckToken((n) => n + 1) : undefined}
+          />
         </Field>
         <Field>
           <FieldLabel htmlFor="voucher-ref-date">Reference Date</FieldLabel>
           <RefField control={control} name="referenceDate" id="voucher-ref-date" type="date" />
         </Field>
       </div>
+
+      {isPurchase && (
+        <DuplicateBillWarning
+          companyId={companyId}
+          partyLedgerId={partyLedgerId}
+          referenceNumber={watchedReference}
+          voucherDate={watchedDate}
+          excludeVoucherId={voucherId}
+          checkToken={billCheckToken}
+        />
+      )}
 
       {isSingleParty && (
         <VoucherPartyField
@@ -205,6 +293,7 @@ export function VoucherForm({
           onKeyDown={() => {}}
           autoFocus
           initialLedgerName={initialValues?.lines[0]?.ledgerName}
+          onLedgerPicked={rememberLedger}
         />
       )}
 
@@ -233,6 +322,7 @@ export function VoucherForm({
                 initialLedgerName={initialValues?.lines[index]?.ledgerName}
                 registerCell={registerCell}
                 onCellKeyDown={handleCellKeyDown}
+                onLedgerPicked={rememberLedger}
                 autoFocusLedger={!isSingleParty && i === 0}
               />
             );
@@ -266,6 +356,16 @@ export function VoucherForm({
           {isSubmitting ? "Saving…" : `Save ${config.label}`}
         </Button>
       </div>
+
+      <UnexpectedLedgerDialog
+        open={!!pendingSave}
+        onOpenChange={(open) => !open && setPendingSave(null)}
+        voucherLabel={config.label}
+        mismatches={pendingSave?.mismatches ?? []}
+        onConfirm={async () => {
+          if (pendingSave) await save(pendingSave.values);
+        }}
+      />
     </form>
   );
 }
@@ -292,6 +392,7 @@ function RefField({
   type,
   as,
   placeholder,
+  onBlur,
 }: {
   control: Control<VoucherFormValues>;
   name: "referenceNumber" | "referenceDate" | "narration";
@@ -299,6 +400,8 @@ function RefField({
   type?: string;
   as?: "textarea";
   placeholder?: string;
+  /** Runs in addition to react-hook-form's own blur handling, never instead of it. */
+  onBlur?: () => void;
 }) {
   return (
     <Controller
@@ -308,7 +411,15 @@ function RefField({
         as === "textarea" ? (
           <Textarea id={id} rows={2} placeholder={placeholder} {...field} />
         ) : (
-          <Input id={id} type={type} {...field} />
+          <Input
+            id={id}
+            type={type}
+            {...field}
+            onBlur={() => {
+              field.onBlur();
+              onBlur?.();
+            }}
+          />
         )
       }
     />

@@ -20,7 +20,7 @@ export interface ShortcutDescriptor {
 export const GLOBAL_SHORTCUTS: ShortcutDescriptor[] = [
   ...VOUCHER_TYPE_ORDER.map((type) => ({
     keys: VOUCHER_TYPE_CONFIG[type].shortcutKey,
-    description: `New ${VOUCHER_TYPE_CONFIG[type].label} voucher`,
+    description: `New ${VOUCHER_TYPE_CONFIG[type].label}`,
   })),
   { keys: "ctrl+k", description: "Command palette / switch company" },
   { keys: "alt+/", description: "Command palette" },

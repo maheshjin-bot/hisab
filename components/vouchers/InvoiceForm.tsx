@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useForm, useFieldArray, useWatch, Controller, type Control } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
@@ -14,7 +14,9 @@ import { SmartDateInput } from "@/components/common/SmartDateInput";
 import { LedgerCombobox } from "@/components/ledgers/LedgerCombobox";
 import { InvoiceLineRow, INVOICE_GRID_COLUMNS } from "./InvoiceLineRow";
 import { InvoiceTotalsBar } from "./InvoiceTotalsBar";
-import { VOUCHER_TYPE_CONFIG } from "@/lib/voucher/voucher-type-config";
+import { DuplicateBillWarning } from "./DuplicateBillWarning";
+import { UnexpectedLedgerDialog } from "./UnexpectedLedgerDialog";
+import { roleMismatch, VOUCHER_TYPE_CONFIG, type LedgerRoleMismatch } from "@/lib/voucher/voucher-type-config";
 import {
   buildInvoiceSchema,
   computeInvoiceTotals,
@@ -108,6 +110,28 @@ export function InvoiceForm({
   const { fields, append, remove } = useFieldArray({ control, name: "lines" });
   const watchedLines = (useWatch({ control, name: "lines" }) ?? []) as InvoiceLineFormValues[];
 
+  // F-18. The form stores a ledger id; the *role* that decides whether the pick
+  // makes sense only comes back on the combobox selection, so it is kept here
+  // as it is chosen. Keyed by id rather than by row, since rows move.
+  //
+  // A line left untouched while editing an existing invoice therefore has no
+  // role here and cannot be judged — which is the right answer: the
+  // confirmation is for a choice being made now.
+  const [pickedLedgers, setPickedLedgers] = useState<Record<string, LedgerSearchResult>>({});
+  const rememberLedger = useCallback((ledger: LedgerSearchResult) => {
+    setPickedLedgers((prev) => (prev[ledger.id] === ledger ? prev : { ...prev, [ledger.id]: ledger }));
+  }, []);
+  const [pendingSave, setPendingSave] = useState<{ values: InvoiceFormValues; mismatches: LedgerRoleMismatch[] } | null>(null);
+
+  // The duplicate-bill guard (migration 0024) is for inbound supplier paper
+  // only. Our own sales invoice numbers are minted by HISAB and already unique
+  // by constraint, so there is nothing to warn about on that side.
+  const isPurchase = voucherType === "purchase";
+  const [billCheckToken, setBillCheckToken] = useState(0);
+  const watchedParty = useWatch({ control, name: "partyLedgerId" });
+  const watchedReference = useWatch({ control, name: "referenceNumber" });
+  const watchedDate = useWatch({ control, name: "voucherDate" });
+
   // The combobox only stores an id, so it needs a name to show until the user
   // picks one. Keyed by ledger id rather than by row position: rows can be
   // removed and reordered, and looking the label up by index would leave a row
@@ -148,7 +172,18 @@ export function InvoiceForm({
     isRowFilled,
   });
 
-  async function onSubmit(values: InvoiceFormValues) {
+  /**
+   * Only the per-line revenue side is soft-filtered here; the party combobox
+   * is a hard filter and cannot offer a wrong role in the first place.
+   */
+  function findRoleMismatches(values: InvoiceFormValues): LedgerRoleMismatch[] {
+    return values.lines
+      .map((line, index) => roleMismatch(revenueRule, pickedLedgers[line.revenueLedgerId], index + 1))
+      .filter((m): m is LedgerRoleMismatch => m !== null);
+  }
+
+  /** Throws on failure, so a confirmation dialog driving it stays open. */
+  async function save(values: InvoiceFormValues) {
     // `lines: []` and an invoice payload, never both — apply_invoice() refuses
     // a save carrying hand-entered lines as well.
     const invoice = {
@@ -190,7 +225,19 @@ export function InvoiceForm({
       }
     } catch (err) {
       toast.error(toUserMessage(err, "Could not save invoice"));
+      throw err;
     }
+  }
+
+  async function onSubmit(values: InvoiceFormValues) {
+    // F-18: a soft-filtered side still accepts any ledger — that stays — but a
+    // pick outside the expected roles now has to be confirmed by name first.
+    const mismatches = findRoleMismatches(values);
+    if (mismatches.length > 0) {
+      setPendingSave({ values, mismatches });
+      return;
+    }
+    await save(values).catch(() => {});
   }
 
   function handleFormKeyDown(e: React.KeyboardEvent) {
@@ -218,13 +265,33 @@ export function InvoiceForm({
         </Field>
         <Field>
           <FieldLabel htmlFor="invoice-ref-number">Reference No.</FieldLabel>
-          <MetaField control={control} name="referenceNumber" id="invoice-ref-number" />
+          <MetaField
+            control={control}
+            name="referenceNumber"
+            id="invoice-ref-number"
+            // On blur rather than on change: a bill number is looked up once
+            // the user has finished typing it, not once per character of one.
+            onBlur={isPurchase ? () => setBillCheckToken((n) => n + 1) : undefined}
+          />
         </Field>
         <Field>
           <FieldLabel htmlFor="invoice-ref-date">Reference Date</FieldLabel>
           <MetaField control={control} name="referenceDate" id="invoice-ref-date" type="date" />
         </Field>
       </div>
+
+      {/* Full width, below the header row: the sentence names a voucher, a
+          date and an amount, and it does not fit a third of a grid. */}
+      {isPurchase && (
+        <DuplicateBillWarning
+          companyId={companyId}
+          partyLedgerId={watchedParty}
+          referenceNumber={watchedReference}
+          voucherDate={watchedDate}
+          excludeVoucherId={voucherId}
+          checkToken={billCheckToken}
+        />
+      )}
 
       <Field>
         <FieldLabel>{partyRule.label}</FieldLabel>
@@ -236,7 +303,10 @@ export function InvoiceForm({
               companyId={companyId}
               value={field.value}
               displayName={initialValues?.partyLedgerName ?? undefined}
-              onSelect={(ledger: LedgerSearchResult) => field.onChange(ledger.id)}
+              onSelect={(ledger: LedgerSearchResult) => {
+                rememberLedger(ledger);
+                field.onChange(ledger.id);
+              }}
               sideRule={partyRule}
               placeholder={`Select ${partyRule.label.toLowerCase()}…`}
             />
@@ -278,6 +348,7 @@ export function InvoiceForm({
                   initialLedgerName={knownLedgerNames.get(watchedLines[index]?.revenueLedgerId ?? "")}
                   registerCell={registerCell}
                   onCellKeyDown={handleCellKeyDown}
+                  onLedgerPicked={rememberLedger}
                 />
               ))}
             </div>
@@ -326,6 +397,16 @@ export function InvoiceForm({
           {isSubmitting ? "Saving…" : `Save ${config.label}`}
         </Button>
       </div>
+
+      <UnexpectedLedgerDialog
+        open={!!pendingSave}
+        onOpenChange={(open) => !open && setPendingSave(null)}
+        voucherLabel={config.label}
+        mismatches={pendingSave?.mismatches ?? []}
+        onConfirm={async () => {
+          if (pendingSave) await save(pendingSave.values);
+        }}
+      />
     </form>
   );
 }
@@ -338,6 +419,7 @@ function MetaField({
   type,
   as,
   placeholder,
+  onBlur,
 }: {
   control: Control<InvoiceFormValues>;
   name: "referenceNumber" | "referenceDate" | "narration";
@@ -345,6 +427,8 @@ function MetaField({
   type?: string;
   as?: "textarea";
   placeholder?: string;
+  /** Runs in addition to react-hook-form's own blur handling, never instead of it. */
+  onBlur?: () => void;
 }) {
   return (
     <Controller
@@ -354,7 +438,16 @@ function MetaField({
         as === "textarea" ? (
           <Textarea id={id} rows={2} placeholder={placeholder} {...field} value={field.value ?? ""} />
         ) : (
-          <Input id={id} type={type} {...field} value={field.value ?? ""} />
+          <Input
+            id={id}
+            type={type}
+            {...field}
+            value={field.value ?? ""}
+            onBlur={() => {
+              field.onBlur();
+              onBlur?.();
+            }}
+          />
         )
       }
     />
