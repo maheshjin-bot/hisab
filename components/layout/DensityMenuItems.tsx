@@ -2,7 +2,7 @@
 
 import { Check, Rows2, Rows3 } from "lucide-react";
 import { useHydrated } from "@/hooks/useHydrated";
-import { DropdownMenuItem, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
+import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
 import { useUiPreferencesStore, type TableDensity } from "@/stores/useUiPreferencesStore";
 
 const OPTIONS: { value: TableDensity; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -23,7 +23,7 @@ export function DensityMenuItems() {
   const hydrated = useHydrated();
 
   return (
-    <>
+    <DropdownMenuGroup>
       <DropdownMenuLabel className="font-normal text-muted-foreground">Table density</DropdownMenuLabel>
       {OPTIONS.map(({ value, label, icon: Icon }) => (
         <DropdownMenuItem key={value} closeOnClick={false} onClick={() => setDensity(value)}>
@@ -32,6 +32,6 @@ export function DensityMenuItems() {
           {hydrated && density === value && <Check className="ml-auto size-3.5" />}
         </DropdownMenuItem>
       ))}
-    </>
+    </DropdownMenuGroup>
   );
 }

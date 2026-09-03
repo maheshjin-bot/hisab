@@ -3,7 +3,7 @@
 import { useTheme } from "next-themes";
 import { useHydrated } from "@/hooks/useHydrated";
 import { Check, Monitor, Moon, Sun } from "lucide-react";
-import { DropdownMenuItem, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
+import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
 
 const OPTIONS = [
   { value: "light", label: "Light", icon: Sun },
@@ -23,7 +23,7 @@ export function ThemeMenuItems() {
   const hydrated = useHydrated();
 
   return (
-    <>
+    <DropdownMenuGroup>
       <DropdownMenuLabel className="font-normal text-muted-foreground">Theme</DropdownMenuLabel>
       {OPTIONS.map(({ value, label, icon: Icon }) => (
         <DropdownMenuItem
@@ -37,6 +37,6 @@ export function ThemeMenuItems() {
           {hydrated && theme === value && <Check className="ml-auto size-3.5" />}
         </DropdownMenuItem>
       ))}
-    </>
+    </DropdownMenuGroup>
   );
 }
