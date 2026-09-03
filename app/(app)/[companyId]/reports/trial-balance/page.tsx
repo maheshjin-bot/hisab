@@ -9,7 +9,7 @@ import { StatementFooter, StatementHeader } from "@/components/reports/Statement
 import { useTrialBalanceQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getTrialBalance } from "@/lib/supabase/queries/reports";
-import { formatCurrency } from "@/lib/utils/currency";
+import { formatCurrency, fromPaise, sumPaise, toPaise } from "@/lib/utils/currency";
 import { isoLocalDate } from "@/lib/utils/financial-year";
 import { asOfPeriod } from "@/lib/utils/statement-period";
 
@@ -24,9 +24,17 @@ export default function TrialBalancePage({ params }: PageProps<"/[companyId]/rep
   const { data, isLoading } = useTrialBalanceQuery(companyId, asOfDate);
 
   const rows = (data ?? []).filter((r) => r.debitBalance !== 0 || r.creditBalance !== 0);
-  const totalDebit = rows.reduce((sum, r) => sum + r.debitBalance, 0);
-  const totalCredit = rows.reduce((sum, r) => sum + r.creditBalance, 0);
-  const tallies = Math.round(totalDebit * 100) === Math.round(totalCredit * 100);
+  // Added in integer paise, not rupee floats. This is the one report whose
+  // purpose is to show Dr = Cr, so it is the last place that may drift: the
+  // accumulator is where a float column loses its paise, and rounding at the
+  // end — as this did — cannot put them back, because the drift has already
+  // happened before the multiply.
+  const totalDebitPaise = sumPaise(rows.map((r) => toPaise(r.debitBalance)));
+  const totalCreditPaise = sumPaise(rows.map((r) => toPaise(r.creditBalance)));
+  const totalDebit = fromPaise(totalDebitPaise);
+  const totalCredit = fromPaise(totalCreditPaise);
+  const differencePaise = Math.abs(totalDebitPaise - totalCreditPaise);
+  const tallies = differencePaise === 0;
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-6">
@@ -92,7 +100,7 @@ export default function TrialBalancePage({ params }: PageProps<"/[companyId]/rep
 
       {!isLoading && !tallies && (
         <p data-print-hide className="text-sm text-destructive">
-          Trial balance does not tally — debit and credit totals differ by {formatCurrency(Math.abs(totalDebit - totalCredit))}. This
+          Trial balance does not tally — debit and credit totals differ by {formatCurrency(fromPaise(differencePaise))}. This
           should not be possible; please report it.
         </p>
       )}
@@ -103,7 +111,7 @@ export default function TrialBalancePage({ params }: PageProps<"/[companyId]/rep
             ? undefined
             : tallies
               ? "Debits and credits tally."
-              : `Does not tally — difference of ${formatCurrency(Math.abs(totalDebit - totalCredit))}.`
+              : `Does not tally — difference of ${formatCurrency(fromPaise(differencePaise))}.`
         }
       />
     </div>

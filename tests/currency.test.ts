@@ -25,19 +25,33 @@ describe("paise arithmetic", () => {
     expect(toPaise(1.016)).toBe(102);
   });
 
-  it("documents the sub-paise inputs where float representation wins", () => {
-    // toPaise is Math.round(rupees * 100), so an exact "half" depends on how
-    // the float landed: 1.005 is really 1.00499999999999989 and rounds down,
-    // while 2.675 is really 2.67500000000000027 and rounds up. Pinned rather
-    // than asserted-as-correct — it is a real limitation, and which way it
-    // falls is not predictable from the decimal literal.
+  it("settles a sub-paise half the way the column does, not the way the float fell", () => {
+    // toPaise used to be Math.round(rupees * 100), so an exact "half" landed
+    // wherever the float did: 1.005 * 100 is 100.49999999999999 and rounded
+    // down, while 2.675 * 100 is 267.50000000000006 and rounded up. Which way
+    // it fell was not predictable from the decimal literal, and half the time
+    // it disagreed with the column the value was on its way to.
     //
-    // Not reachable from the voucher form, which steps in 0.01, but a CSV can
-    // carry three decimals. The cost is one paise on such a row; the fix
-    // would be parsing decimal strings instead of going via float, which is
-    // worth doing only if a customer ever hits it.
-    expect(toPaise(1.005)).toBe(100);
+    // It now reads the decimal digits instead of multiplying, so both agree
+    // with Postgres. Confirmed on PG 18.6:
+    //   '1.005'::numeric(18,2) = 1.01,  '2.675'::numeric(18,2) = 2.68
+    expect(toPaise(1.005)).toBe(101);
     expect(toPaise(2.675)).toBe(268);
+
+    // Reachable: parseCsvAmount accepts three decimal places, so any CSV
+    // voucher or opening-balance row can carry one of these.
+    expect(toPaise(0.145)).toBe(15);
+    expect(toPaise(33.675)).toBe(3368);
+  });
+
+  it("rounds a half away from zero on both sides, as Postgres round() does", () => {
+    // Math.round is half toward +Infinity, so it disagreed with the column on
+    // every negative half: Math.round(-0.5) is -0 where Postgres gives -1.
+    // Confirmed: (-0.005)::numeric(18,2) = -0.01, (-1.005) = -1.01.
+    expect(toPaise(-0.005)).toBe(-1);
+    expect(toPaise(-1.005)).toBe(-101);
+    expect(toPaise(-2.675)).toBe(-268);
+    expect(toPaise(0.005)).toBe(1);
   });
 
   it("round-trips every amount it is given", () => {

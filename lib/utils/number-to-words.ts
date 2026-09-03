@@ -7,6 +7,8 @@
  * re-parsed display string.
  */
 
+import { roundHalfAwayFromZero } from "@/lib/utils/currency";
+
 const ONES = [
   "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
   "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
@@ -62,8 +64,25 @@ export function numberToWordsIndian(value: number): string {
  * like an error on a printed document.
  */
 export function rupeesInWords(paise: number): string {
-  const rounded = Math.round(paise);
-  const sign = rounded < 0 ? "Minus " : "";
+  // A missing amount must not print as a hole. `numberToWordsIndian` returns
+  // "" for a non-finite input, which is right for a helper and wrong for the
+  // line that goes on a document a customer receives: it rendered NaN as
+  // "Rupees  Only", a blank where the amount belongs, complete with the
+  // double space. Refusing is the only safe answer — an invoice that fails to
+  // render is recoverable, one that prints an empty total is not.
+  if (!Number.isFinite(paise)) {
+    throw new Error(`rupeesInWords needs a finite amount in paise, received ${paise}`);
+  }
+
+  // Half away from zero, matching the figure this line duplicates: Intl
+  // rounds half-expand, so formatCurrency(fromPaise(-0.5)) prints "-₹0.01",
+  // and the words have to say one paisa too. `Math.round` was wrong twice
+  // over here — it is half-up, so it disagreed on negatives, and it returned
+  // -0 for -0.5, whereupon `-0 < 0` is false and the "Minus" was dropped
+  // altogether. Callers pass integer paise, where every rounding rule agrees;
+  // this is about the contract, on output a customer reads.
+  const rounded = roundHalfAwayFromZero(paise);
+  const sign = paise < 0 ? "Minus " : "";
   const abs = Math.abs(rounded);
 
   const rupees = Math.floor(abs / 100);

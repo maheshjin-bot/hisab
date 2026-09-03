@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { roundHalfAwayFromZero, scaleDecimal, toPaise } from "@/lib/utils/currency";
 
 /**
  * The invoice form's shape and its arithmetic.
@@ -36,32 +37,24 @@ export interface InvoiceFormValues {
 }
 
 /**
- * Scales a decimal entered by a user to an exact integer at the precision its
- * column holds, so all arithmetic downstream is integer arithmetic.
- *
- * `Math.round(x * 10^n)` and not `toFixed`, because both round half away from
- * zero for positive values and the multiply is the cheaper of the two. The
- * residual disagreement with Postgres is inherent to taking the value as a JS
- * number at all: a rate typed as 33.33345 is already 33.333449999… by the time
- * this sees it, so a fifth decimal place can land a paisa away from what the
- * database computes. That is exactly the half-paisa disagreement 0021 refuses
- * to turn into a rejected save — the preview is allowed to be a paisa out; the
- * books are not, and they are settled server-side.
+ * A field the user is halfway through typing is a zero, not a NaN line — the
+ * totals bar recomputes on every keystroke, off raw form values.
  */
-function scaled(value: number, places: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.round(value * 10 ** places);
+function blankAsZero(value: number): number {
+  return Number.isFinite(value) ? value : 0;
 }
 
 /**
  * Divides by 10^places, rounding half away from zero — Postgres `round()`'s
  * rule, rather than `Math.round`'s round-half-up, which disagrees on negatives.
+ * The rule itself lives in currency.ts, so the codebase carries one of it.
  *
- * The scaling above is what makes this correct, and it is not cosmetic:
- * `0.615 * 100` is 61.49999999999999 in binary floating point, so a line
- * rounded from the raw product posts 0.61 where the database stores 0.62.
- * Scaling quantity and rate to exact integers first and only then dividing
- * keeps every intermediate on a value the format represents exactly.
+ * Scaling both operands to exact integers first is what makes this correct,
+ * and it is not cosmetic: `0.615 * 100` is 61.49999999999999 in binary
+ * floating point, so a line rounded from the raw product posts 0.61 where the
+ * database stores 0.62. Scaling quantity and rate with `scaleDecimal` and only
+ * then dividing keeps every intermediate on a value the format represents
+ * exactly, so nothing ever approaches a rounding boundary from the wrong side.
  *
  * The product stays exact while it fits a double's 53-bit integer range, which
  * covers a line worth up to about ninety crore. Past that this drifts by a
@@ -69,8 +62,7 @@ function scaled(value: number, places: number): number {
  * database the authority on what a line is worth.
  */
 function divideRounding(value: number, places: number): number {
-  const divisor = 10 ** places;
-  return value < 0 ? -Math.round(-value / divisor) : Math.round(value / divisor);
+  return roundHalfAwayFromZero(value / 10 ** places);
 }
 
 /**
@@ -80,15 +72,38 @@ function divideRounding(value: number, places: number): number {
  * that to paise once, here, is the same single settlement the generated column
  * performs. Three lines at 33.333 each give 3333 paise, never 33.333 summed
  * and rounded to 10000.
+ *
+ * Both operands go through `scaleDecimal`, which is how the column itself
+ * takes them: `numeric(18,4)` rounds a rate half away from zero on the way in.
+ * This used to be `Math.round(value * 10 ** places)`, and the difference is
+ * not a paisa — it is a whole rate tick, which then multiplies by the
+ * quantity. A rate of 0.00015 scaled that way gave
+ * `Math.round(1.4999999999999998)` = 1, i.e. 0.0001, so a thousand units
+ * previewed at ₹0.10 against the ₹0.20 the column stores. Confirmed on
+ * PG 18.6: `0.00015::numeric(18,4)` is 0.0002, and
+ * `round(1000::numeric(18,3) * 0.00015::numeric(18,4), 2)` is 0.20.
  */
 export function lineGrossPaise(line: { quantity: number; rate: number }): number {
-  const product = scaled(line.quantity, QUANTITY_SCALE) * scaled(line.rate, RATE_SCALE);
+  const quantity = scaleDecimal(blankAsZero(line.quantity), QUANTITY_SCALE);
+  const rate = scaleDecimal(blankAsZero(line.rate), RATE_SCALE);
   // 3dp x 4dp = 7dp; paise is 2dp, so five places come off.
-  return divideRounding(product, QUANTITY_SCALE + RATE_SCALE - 2);
+  return divideRounding(quantity * rate, QUANTITY_SCALE + RATE_SCALE - 2);
 }
 
+/**
+ * `discount_amount` in integer paise — the value the numeric(18,2) column
+ * will hold.
+ *
+ * This is `toPaise` and nothing else. It used to be `Math.round(x * 100)`,
+ * which reintroduced inside this module the very float boundary the module
+ * exists to avoid: a discount of 1.005 previewed as ₹1.00 where the column
+ * stores 1.01, so the line the user saw was a paisa off the line the books
+ * held. All three of this module's scales — 2dp discount, 3dp quantity, 4dp
+ * rate — now go through the one `scaleDecimal`, so there is a single rounding
+ * rule here and no second way to do it.
+ */
 export function discountPaise(line: { discountAmount: number }): number {
-  return scaled(line.discountAmount, 2);
+  return toPaise(blankAsZero(line.discountAmount));
 }
 
 /** The generated column, previewed: `round(quantity * rate, 2) - discount_amount`. */
