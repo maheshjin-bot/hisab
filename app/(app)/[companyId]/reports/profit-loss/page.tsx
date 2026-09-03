@@ -64,7 +64,7 @@ function Section({ title, rows, total, totalLabel }: { title: string; rows: Prof
 export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/reports/profit-loss">) {
   const { companyId } = use(params);
   const supabase = useSupabase();
-  const { range, setRange, financialYearStartMonth } = useReportDateRange(companyId);
+  const { range, setRange, financialYear } = useReportDateRange(companyId);
   const { data, isLoading } = useProfitAndLossQuery(companyId, range.from, range.to);
 
   const rows = data ?? [];
@@ -118,7 +118,7 @@ export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/re
       </div>
 
       <div data-print-hide>
-        <ReportDateRangeFilter value={range} onChange={setRange} financialYearStartMonth={financialYearStartMonth} />
+        <ReportDateRangeFilter value={range} onChange={setRange} financialYear={financialYear} />
       </div>
 
       {isLoading ? (

@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use } from "react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
@@ -9,18 +9,16 @@ import { StatementFooter, StatementHeader } from "@/components/reports/Statement
 import { useTrialBalanceQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getTrialBalance } from "@/lib/supabase/queries/reports";
+import { useReportAsOfDate } from "@/components/reports/ReportDateRangeFilter";
 import { formatCurrency, fromPaise, sumPaise, toPaise } from "@/lib/utils/currency";
-import { isoLocalDate } from "@/lib/utils/financial-year";
 import { asOfPeriod } from "@/lib/utils/statement-period";
-
-function isoToday() {
-  return isoLocalDate(new Date());
-}
 
 export default function TrialBalancePage({ params }: PageProps<"/[companyId]/reports/trial-balance">) {
   const { companyId } = use(params);
   const supabase = useSupabase();
-  const [asOfDate, setAsOfDate] = useState(isoToday());
+  // Opens on the selected financial year's closing date — today only while
+  // that year is still running. The field below still takes any date.
+  const { asOfDate, setAsOfDate } = useReportAsOfDate(companyId);
   const { data, isLoading } = useTrialBalanceQuery(companyId, asOfDate);
 
   const rows = (data ?? []).filter((r) => r.debitBalance !== 0 || r.creditBalance !== 0);

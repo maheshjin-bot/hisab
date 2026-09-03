@@ -18,7 +18,7 @@ import { rangePeriod } from "@/lib/utils/statement-period";
 export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/daybook">) {
   const { companyId } = use(params);
   const supabase = useSupabase();
-  const { range, setRange, financialYearStartMonth } = useReportDateRange(companyId);
+  const { range, setRange, financialYear } = useReportDateRange(companyId);
   const { data, isLoading } = useDaybookQuery(companyId, range.from, range.to);
 
   return (
@@ -46,7 +46,7 @@ export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/
       </div>
 
       <div data-print-hide>
-        <ReportDateRangeFilter value={range} onChange={setRange} financialYearStartMonth={financialYearStartMonth} />
+        <ReportDateRangeFilter value={range} onChange={setRange} financialYear={financialYear} />
       </div>
 
       {isLoading ? (

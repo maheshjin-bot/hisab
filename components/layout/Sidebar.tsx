@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CompanySwitcher } from "./CompanySwitcher";
+import { FinancialYearSelect } from "./FinancialYearSelect";
 import { VOUCHER_TYPE_CONFIG, VOUCHER_TYPE_ORDER } from "@/lib/voucher/voucher-type-config";
 import { useUiPreferencesStore } from "@/stores/useUiPreferencesStore";
 
@@ -126,6 +127,13 @@ export function SidebarNav({
             it would be an unreadable sliver, so the rail drops it and the
             company stays reachable from the command palette. */}
         {!collapsed && <CompanySwitcher activeCompanyId={companyId} />}
+        {/* The year survives collapsing as an icon, unlike the switcher: the
+            company is guessable from the data on screen, but "which year am I
+            looking at" is exactly what isn't, and it's the first question
+            asked when reopening closed books. `onNavigate` is set only by the
+            mobile drawer, so this is how the rail knows it's the copy that
+            should own the Alt+Y binding. */}
+        <FinancialYearSelect companyId={companyId} collapsed={collapsed} bindShortcut={!onNavigate} />
       </div>
 
       <nav className={cn("flex-1 space-y-5 overflow-y-auto pb-3", collapsed ? "px-2" : "px-3")}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, use, useState } from "react";
+import { Fragment, use } from "react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,13 +10,9 @@ import { StatementFooter, StatementHeader } from "@/components/reports/Statement
 import { useBalanceSheetQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getBalanceSheet, type BalanceSheetRow } from "@/lib/supabase/queries/reports";
+import { useReportAsOfDate } from "@/components/reports/ReportDateRangeFilter";
 import { formatCurrency } from "@/lib/utils/currency";
-import { isoLocalDate } from "@/lib/utils/financial-year";
 import { asOfPeriod } from "@/lib/utils/statement-period";
-
-function isoToday() {
-  return isoLocalDate(new Date());
-}
 
 function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]; total: number }) {
   const byGroup = new Map<string, BalanceSheetRow[]>();
@@ -80,7 +76,9 @@ function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]
 export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/reports/balance-sheet">) {
   const { companyId } = use(params);
   const supabase = useSupabase();
-  const [asOfDate, setAsOfDate] = useState(isoToday());
+  // Opens on the selected financial year's closing date — today only while
+  // that year is still running. The field below still takes any date.
+  const { asOfDate, setAsOfDate } = useReportAsOfDate(companyId);
   const { data, isLoading } = useBalanceSheetQuery(companyId, asOfDate);
 
   const liabilities = (data ?? []).filter((r) => r.side === "liability");

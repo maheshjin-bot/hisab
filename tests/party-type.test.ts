@@ -5,6 +5,7 @@ import {
   groupsForPartyType,
   partyTypeConfig,
   partyTypeForGroup,
+  partyTypeForRole,
 } from "@/lib/ledgers/party-type";
 import type { AccountGroup, LedgerRole } from "@/lib/supabase/queries/ledgers";
 
@@ -186,5 +187,25 @@ describe("opening an existing ledger", () => {
       if (!type) continue;
       expect(groupsForPartyType(seeded, type).map((c) => c.id)).toContain(g.id);
     }
+  });
+});
+
+describe("partyTypeForRole", () => {
+  it("offers the plain word for the role a voucher field wants", () => {
+    expect(partyTypeForRole("debtor")).toBe("customer");
+    expect(partyTypeForRole("creditor")).toBe("supplier");
+    expect(partyTypeForRole("income")).toBe("income");
+    expect(partyTypeForRole("expense")).toBe("expense");
+  });
+
+  it("proposes a bank account for cash_bank — the first of the two words that share the role", () => {
+    expect(partyTypeForRole("cash_bank")).toBe("bank");
+  });
+
+  it("has no word for roles the plain picker doesn't cover", () => {
+    expect(partyTypeForRole("capital")).toBeNull();
+    expect(partyTypeForRole("loan")).toBeNull();
+    expect(partyTypeForRole("fixed_asset")).toBeNull();
+    expect(partyTypeForRole("other")).toBeNull();
   });
 });
