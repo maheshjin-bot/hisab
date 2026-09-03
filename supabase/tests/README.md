@@ -74,7 +74,7 @@ Every assertion prints `ok <what>` as a notice. A failure raises, which aborts
 the script, so the last line before the error is the assertion just before the
 one that broke. A run that reaches the end prints `ALL GUARANTEES HELD`.
 
-Sections 6 to 26 each cover a specific migration, and each has been confirmed
+Sections 6 to 31 each cover a specific migration, and each has been confirmed
 to fail when that migration is absent — they are not vacuous:
 
 | Section | Covers | Guarantee |
@@ -101,6 +101,10 @@ to fail when that migration is absent — they are not vacuous:
 | 25 | 0022 | a plain voucher cannot be turned into an invoice by an edit |
 | 26 | 0022 | an invoice cannot be made out to another company's ledger |
 | 27 | 0022 | an invoice's party cannot be removed by a bare `update` on the header |
+| 28 | 0024 | the same supplier's bill number, entered again in the same year, is found — whatever its case or surrounding spaces — and finding it stops nothing |
+| 29 | 0024 | and nothing else is: another supplier, another financial year, a blank or absent reference, another company, a sales voucher, a deleted one |
+| 30 | 0025 | the outstanding list names every party carrying a balance, which way it points, how much, and when it was last posted to |
+| 31 | 0025 | and nothing that is not money owed by a party: a settled account, an inactive one at nil, cash, sales, purchases, another company's debtor |
 
 Sections 22 and 27 both cover 0022's party rule and are not duplicates: 22 is
 the rule as `check_invoice_lines_match()` enforces it, on the `invoice_lines`
@@ -122,6 +126,36 @@ either operand is null, and a NULL condition would have skipped the raise and
 printed `ok`. No call site can reach it today — every `p_expect` in this file
 is a literal — but the guard fails closed regardless, because the direction of
 that bug is a green test that checked nothing.
+
+Sections 28 and 29 are the two halves of one guarantee and neither is
+optional. `find_duplicate_bill` is a warning rather than a constraint, so the
+only thing that makes it worth anything is that it is right in both
+directions: 28 is everything it must find, and that finding it does not stop
+the save; 29 is everything that merely looks like a duplicate and must not be
+reported as one. A guard that cries wolf is dismissed on sight, and then it is
+dismissed on the day it was right — so the false-positive half carries at
+least as much weight as the true-positive one. Every case in 29 first asserts
+that the near-miss voucher really is on the books, because a filter test
+against a fixture that was never created passes for the wrong reason.
+
+Section 29's last case is the only one that asks a question the application
+cannot ask: a company id and a party ledger belonging to two different
+companies. Migration 0022's composite foreign key makes that pair
+unrepresentable in a voucher, so the arguments always agree in real use — but
+the block runs as the table owner with RLS bypassed, so it is the function's
+own `company_id` filter being tested rather than the policy behind it, and
+removing that filter is a mutation nothing else in the suite catches.
+
+Sections 30 and 31 are the same pairing one migration later, and 31 carries
+the decision rather than the arithmetic. `get_outstanding_balances` reports a
+party's side from the sign of its balance and not from the role of its group —
+0012's lesson, in a new report — so a customer in credit is a payable and a
+supplier holding our advance is a receivable. Reporting those by role instead
+leaves both totals wrong while every individual row still looks plausible,
+which is why the totals are asserted as well as the rows. Section 31 also
+asserts that cash, sales and purchases hold balances before asserting that they
+are absent from the list, for the same reason section 29 does: a filter test
+against a fixture that was never created passes for the wrong reason.
 
 Section 19 is the one place the suite exercises RLS for real rather than
 evaluating a policy predicate by hand: it becomes the `authenticated` role for

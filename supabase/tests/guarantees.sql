@@ -3006,6 +3006,803 @@ begin
 end;
 $$;
 
+-- ------------------------------------------- 28. the same bill entered twice
+
+\echo '28. The same supplier bill entered twice is found'
+
+-- vouchers.reference_number holds the supplier's own bill number on a
+-- purchase, and until 0024 nothing anywhere looked at it twice: no unique
+-- constraint, no index, and no warning in the entry flow. The same bill could
+-- be keyed in on Monday and again on Thursday with no signal at all, which is
+-- the ordinary road to paying a supplier twice.
+--
+-- The fix is deliberately a lookup and not a constraint. Two different
+-- suppliers really do issue the same bill number, and one supplier's numbering
+-- really does restart every April, so a unique index would refuse entries that
+-- are correct. What the books need is for somebody to be told; the decision
+-- stays with the person who can see both documents.
+--
+-- So what is guaranteed here is that the lookup answers truthfully, on both
+-- sides: section 28 is everything it must find and the fact that finding it
+-- stops nothing, and section 29 is everything it must not.
+
+do $$
+declare
+  v_company uuid;
+  v_group uuid;
+  v_supplier_a uuid;
+  v_supplier_b uuid;
+  v_expense uuid;
+  v_debtor uuid;
+  v_income uuid;
+  v_first uuid;
+  v_second uuid;
+  v_hit record;
+  v_count int;
+begin
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Bill Co', '2025-04-01', 4, 'INR') returning id into v_company;
+
+  perform app_private.seed_chart_of_accounts(v_company);
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Sundry Creditors';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Bill Supplier A') returning id into v_supplier_a;
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Bill Supplier B') returning id into v_supplier_b;
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Direct Expenses';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Bill Purchases') returning id into v_expense;
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Sundry Debtors';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Bill Customer') returning id into v_debtor;
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Bill Revenue') returning id into v_income;
+
+  v_first := public.create_voucher(
+    v_company, 'purchase', '2026-04-05', 'the bill as first entered', 'INV-001', '2026-04-04',
+    '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_supplier_a, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Steel sections', 'quantity', 1,
+                         'rate', 1000, 'revenue_ledger_id', v_expense)
+    ))
+  );
+
+  -- total_amount is written by the deferred balance trigger, and the warning
+  -- names the amount, so it has to be settled before it is read.
+  set constraints all immediate;
+  set constraints all deferred;
+
+  select * into v_hit
+  from public.find_duplicate_bill(v_company, v_supplier_a, 'INV-001', '2026-04-20', null);
+
+  perform pg_temp.expect(
+    v_hit.voucher_id = v_first,
+    'a supplier bill number already used by that supplier this year is found'
+  );
+
+  -- The warning has to name the existing voucher well enough for the user to
+  -- recognise it without leaving the form, so all three parts come back with
+  -- it rather than being fetched again per hit.
+  perform pg_temp.expect(
+    v_hit.voucher_number = (select v.voucher_number from public.vouchers v where v.id = v_first)
+    and v_hit.voucher_date = '2026-04-05'::date
+    and v_hit.total_amount = 1000.00,
+    'and it carries the number, date and amount the warning has to state'
+  );
+
+  -- INV-001, inv-001 and ' INV-001 ' are one bill. A supplier's number is a
+  -- label on a piece of paper, and which of those a user types depends on
+  -- nothing but their keyboard that morning.
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_supplier_a, 'inv-001', '2026-04-20', null)) = 1,
+    'the same bill number in another case is the same bill'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_supplier_a, '   INV-001   ', '2026-04-20', null)) = 1,
+    'and so is one with spaces around it'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_supplier_a, '  Inv-001', '2026-04-20', null)) = 1,
+    'and one that is both at once'
+  );
+
+  -- Editing an invoice must not report the invoice itself. Without this the
+  -- warning fires on every save of every purchase that has a bill number,
+  -- which is the fastest way to teach a user to ignore it.
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_supplier_a, 'INV-001', '2026-04-20', v_first)) = 0,
+    'the voucher being edited is not a duplicate of itself'
+  );
+
+  -- And it is a warning, not a rule. Somebody who has both documents in front
+  -- of them and knows they are two genuinely different deliveries has to be
+  -- able to say so, and the only way to say so is for the save to go through.
+  v_second := public.create_voucher(
+    v_company, 'purchase', '2026-04-12', 'the same bill number, entered again', 'INV-001', '2026-04-04',
+    '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_supplier_a, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Steel sections', 'quantity', 1,
+                         'rate', 1000, 'revenue_ledger_id', v_expense)
+    ))
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    v_second is not null and v_second <> v_first,
+    'a bill the lookup warns about can still be saved — this warns, it does not block'
+  );
+
+  select count(*) into v_count
+  from public.find_duplicate_bill(v_company, v_supplier_a, 'INV-001', '2026-04-20', v_second);
+
+  perform pg_temp.expect(
+    v_count = 1,
+    'and the second entry now finds the first, so the warning survives the decision to overrule it'
+  );
+
+  perform set_config('test.bill_company', v_company::text, false);
+  perform set_config('test.bill_supplier_a', v_supplier_a::text, false);
+  perform set_config('test.bill_supplier_b', v_supplier_b::text, false);
+  perform set_config('test.bill_expense', v_expense::text, false);
+  perform set_config('test.bill_debtor', v_debtor::text, false);
+  perform set_config('test.bill_income', v_income::text, false);
+  perform set_config('test.bill_first', v_first::text, false);
+end;
+$$;
+
+-- ------------------------------------- 29. and everything that is not a bill
+
+\echo '29. And nothing that is not the same bill'
+
+-- The half that decides whether the warning is worth anything. A guard that
+-- fires on entries that are not duplicates is worse than no guard: it is
+-- dismissed on sight, and then it is dismissed on the day it was right.
+--
+-- Each case below is one voucher that shares nearly everything with the
+-- original and differs in exactly one way, so a failure names the filter that
+-- has gone.
+
+do $$
+declare
+  v_company uuid := current_setting('test.bill_company')::uuid;
+  v_supplier_a uuid := current_setting('test.bill_supplier_a')::uuid;
+  v_supplier_b uuid := current_setting('test.bill_supplier_b')::uuid;
+  v_expense uuid := current_setting('test.bill_expense')::uuid;
+  v_debtor uuid := current_setting('test.bill_debtor')::uuid;
+  v_income uuid := current_setting('test.bill_income')::uuid;
+  v_other_company uuid;
+  v_other_supplier uuid;
+  v_other_expense uuid;
+  v_group uuid;
+  v_prior uuid;
+  v_blank uuid;
+  v_none uuid;
+  v_sale uuid;
+  v_deleted uuid;
+begin
+  -- Two suppliers issuing the same number is ordinary. Both of them number
+  -- from 1 every April, and one of them is not evidence about the other.
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_supplier_b, 'INV-001', '2026-04-20', null)) = 0,
+    'another supplier using the same bill number is not a duplicate'
+  );
+
+  -- The same supplier's numbering restarts with the year, so INV-001 of
+  -- 2025-26 and INV-001 of 2026-27 are two different bills. This company's
+  -- year starts in April, so 10 June 2025 is the earlier one.
+  v_prior := public.create_voucher(
+    v_company, 'purchase', '2025-06-10', 'last year, same number', 'INV-001', '2025-06-09',
+    '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_supplier_a, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Steel sections', 'quantity', 1,
+                         'rate', 700, 'revenue_ledger_id', v_expense)
+    ))
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select v.financial_year_label from public.vouchers v where v.id = v_prior) = '2025-26'
+    and (select count(*) from public.find_duplicate_bill(v_company, v_supplier_a, 'INV-001', '2025-06-20', null)) = 1,
+    'the same number in the previous year is its own bill, found from within that year'
+  );
+
+  -- Two in this year (28 entered a second on purpose), one in the last, and
+  -- the query dated into this year sees only this year's.
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_supplier_a, 'INV-001', '2026-04-20', null)) = 2,
+    'and a bill from a previous year is not a duplicate of one entered this year'
+  );
+
+  -- Most vouchers have no reference at all, and two of them are not two
+  -- entries of one bill — they are two vouchers nobody wrote a number on.
+  v_none := public.create_voucher(
+    v_company, 'purchase', '2026-04-07', 'a bill with no number on it', null, null,
+    '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_supplier_a, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Cartage', 'quantity', 1,
+                         'rate', 200, 'revenue_ledger_id', v_expense)
+    ))
+  );
+
+  v_blank := public.create_voucher(
+    v_company, 'purchase', '2026-04-08', 'a bill whose number field was spacebarred', '   ', null,
+    '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_supplier_a, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Cartage', 'quantity', 1,
+                         'rate', 300, 'revenue_ledger_id', v_expense)
+    ))
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  -- Not vacuous: both rows exist, are this supplier's, and are in this year.
+  -- The only reason neither is returned is the reference itself.
+  perform pg_temp.expect(
+    (select v.reference_number from public.vouchers v where v.id = v_none) is null
+    and (select v.reference_number from public.vouchers v where v.id = v_blank) = '   ',
+    'a purchase with no bill number, and one with only spaces, are both on the books'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_supplier_a, null, '2026-04-20', null)) = 0,
+    'no bill number is not a duplicate of the other vouchers that have none'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_supplier_a, '   ', '2026-04-20', null)) = 0,
+    'and a bill number of nothing but spaces is not a duplicate of one that is also blank'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_supplier_a, '', '2026-04-20', null)) = 0,
+    'nor is an empty one'
+  );
+
+  -- A sales invoice number is minted by HISAB and already unique by
+  -- constraint; the risk this guard exists for is inbound paper. Everything
+  -- else about this voucher matches the query — same company, same party,
+  -- same number, same year — so the only thing keeping it out is its type.
+  v_sale := public.create_voucher(
+    v_company, 'sales', '2026-04-09', 'our own invoice, numbered by us', 'INV-001', null,
+    '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_debtor, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Consulting', 'quantity', 1,
+                         'rate', 1000, 'revenue_ledger_id', v_income)
+    ))
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select v.reference_number from public.vouchers v where v.id = v_sale) = 'INV-001'
+    and (select v.party_ledger_id from public.vouchers v where v.id = v_sale) = v_debtor,
+    'a sales invoice carrying the same reference is on the books too'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_debtor, 'INV-001', '2026-04-20', null)) = 0,
+    'and a sales voucher is never a duplicate bill, whatever its reference says'
+  );
+
+  -- The company argument scopes the answer, not merely the party argument.
+  --
+  -- No voucher in these books can name another company's ledger — the
+  -- composite foreign key from 0022 makes it unrepresentable, and section 26
+  -- proves it — so the two arguments always agree when the application passes
+  -- them. This asserts what happens when they do not: a caller asking about
+  -- our company with somebody else's supplier gets nothing, rather than a
+  -- report of that company's purchases. RLS would also stand in the way of a
+  -- real user, and this block is running as the owner with RLS bypassed, which
+  -- is exactly why the function's own filter has to be there too.
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Bill Other Co', '2025-04-01', 4, 'INR') returning id into v_other_company;
+
+  perform app_private.seed_chart_of_accounts(v_other_company);
+
+  select id into v_group from public.account_groups
+  where company_id = v_other_company and name = 'Sundry Creditors';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_other_company, v_group, 'ZZ Bill Other Supplier') returning id into v_other_supplier;
+
+  select id into v_group from public.account_groups
+  where company_id = v_other_company and name = 'Direct Expenses';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_other_company, v_group, 'ZZ Bill Other Purchases') returning id into v_other_expense;
+
+  perform public.create_voucher(
+    v_other_company, 'purchase', '2026-04-05', 'another company''s bill', 'INV-001', null,
+    '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_other_supplier, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Steel sections', 'quantity', 1,
+                         'rate', 900, 'revenue_ledger_id', v_other_expense)
+    ))
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_other_company, v_other_supplier, 'INV-001', '2026-04-20', null)) = 1,
+    'the other company can find its own bill in its own books'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_other_supplier, 'INV-001', '2026-04-20', null)) = 0,
+    'and this company asking about that supplier is told nothing at all'
+  );
+
+  -- A voucher that has been deleted is not in the books, so it is not a bill
+  -- that has already been entered. Warning about one would send the user to
+  -- look for a voucher the list no longer shows.
+  v_deleted := public.create_voucher(
+    v_company, 'purchase', '2026-04-10', 'entered, then deleted', 'INV-DEL', '2026-04-09',
+    '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_supplier_a, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Steel sections', 'quantity', 1,
+                         'rate', 400, 'revenue_ledger_id', v_expense)
+    ))
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_supplier_a, 'INV-DEL', '2026-04-20', null)) = 1,
+    'a bill on the books is found before it is deleted'
+  );
+
+  update public.vouchers set is_deleted = true where id = v_deleted;
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_company, v_supplier_a, 'INV-DEL', '2026-04-20', null)) = 0,
+    'and not after, because a deleted voucher is not a bill that has been entered'
+  );
+end;
+$$;
+
+-- ------------------------------------------ 30. the outstanding party list
+
+\echo '30. Who owes me, and who I owe'
+
+-- get_outstanding_balances (0025) is the only report that names the parties
+-- behind "Sundry Debtors". It has to be right about three separate things: who
+-- belongs in the list, which way each balance points, and how much.
+--
+-- The fixture is one company holding every shape a party ledger can take —
+-- a customer who owes, a customer in credit, a supplier who is owed, a
+-- supplier holding an advance, a party settled to nil, a retired party still
+-- carrying money, and one whose whole balance is an opening figure — plus
+-- cash, sales and expense ledgers that must never appear whatever they hold.
+
+do $$
+declare
+  v_company uuid;
+  v_group uuid;
+  v_cash uuid;
+  v_sales uuid;
+  v_expense uuid;
+  v_owing uuid;
+  v_settled uuid;
+  v_advance uuid;
+  v_retired uuid;
+  v_retired_nil uuid;
+  v_opening uuid;
+  v_owed uuid;
+  v_prepaid uuid;
+begin
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Outstanding Co', '2025-04-01', 4, 'INR') returning id into v_company;
+
+  perform app_private.seed_chart_of_accounts(v_company);
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Out Cash') returning id into v_cash;
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Out Sales') returning id into v_sales;
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Direct Expenses';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Out Purchases') returning id into v_expense;
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Sundry Debtors';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Out Owing Customer') returning id into v_owing;
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Out Settled Customer') returning id into v_settled;
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Out Advance Customer') returning id into v_advance;
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Out Retired Customer') returning id into v_retired;
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Out Retired Nil Customer') returning id into v_retired_nil;
+  -- The only balance this one will ever have is the figure it was created
+  -- with: a party carried over from the old books and never posted to since.
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type)
+  values (v_company, v_group, 'ZZ Out Opening Customer', 250, 'debit') returning id into v_opening;
+
+  select id into v_group from public.account_groups
+  where company_id = v_company and name = 'Sundry Creditors';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Out Owed Supplier') returning id into v_owed;
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_company, v_group, 'ZZ Out Prepaid Supplier') returning id into v_prepaid;
+
+  -- Retired while empty, then posted to — the same route section 6 uses to
+  -- reach "inactive and holding a balance" without tripping the 0017 guard.
+  update public.ledgers set is_active = false where id in (v_retired, v_retired_nil);
+
+  -- A customer bought on credit and part-paid: 5000 out, 1500 back, 3500 left.
+  perform public.create_voucher(
+    v_company, 'journal', '2026-04-05', 'goods sold on credit', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_owing, 'debit_amount', 5000, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 5000, 'line_order', 1)
+    )
+  );
+  perform public.create_voucher(
+    v_company, 'receipt', '2026-05-20', 'part payment received', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_cash,  'debit_amount', 1500, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_owing, 'debit_amount', 0, 'credit_amount', 1500, 'line_order', 1)
+    )
+  );
+
+  -- A customer who bought and paid in full. Two vouchers, an active ledger,
+  -- and nothing left owing.
+  perform public.create_voucher(
+    v_company, 'journal', '2026-04-06', 'goods sold on credit', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_settled, 'debit_amount', 1000, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_sales,   'debit_amount', 0, 'credit_amount', 1000, 'line_order', 1)
+    )
+  );
+  perform public.create_voucher(
+    v_company, 'receipt', '2026-04-25', 'settled in full', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_cash,    'debit_amount', 1000, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_settled, 'debit_amount', 0, 'credit_amount', 1000, 'line_order', 1)
+    )
+  );
+
+  -- A customer who paid before taking delivery. Nothing has been sold to him,
+  -- so his ledger sits in credit and the shop owes him 900 of goods.
+  perform public.create_voucher(
+    v_company, 'receipt', '2026-04-08', 'advance received against an order', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_cash,    'debit_amount', 900, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_advance, 'debit_amount', 0, 'credit_amount', 900, 'line_order', 1)
+    )
+  );
+
+  -- A customer nobody deals with any more who never cleared his last bill.
+  perform public.create_voucher(
+    v_company, 'journal', '2026-04-09', 'the last bill he never paid', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_retired, 'debit_amount', 700, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_sales,   'debit_amount', 0, 'credit_amount', 700, 'line_order', 1)
+    )
+  );
+
+  -- A supplier billed 4000 and paid 1000: 3000 still to pay.
+  perform public.create_voucher(
+    v_company, 'journal', '2026-04-11', 'stock bought on credit', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_expense, 'debit_amount', 4000, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_owed,    'debit_amount', 0, 'credit_amount', 4000, 'line_order', 1)
+    )
+  );
+  perform public.create_voucher(
+    v_company, 'payment', '2026-05-02', 'part payment made', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_owed, 'debit_amount', 1000, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_cash, 'debit_amount', 0, 'credit_amount', 1000, 'line_order', 1)
+    )
+  );
+
+  -- A supplier paid in advance against an order not yet delivered: his ledger
+  -- sits in debit and he owes the shop 600 of goods.
+  perform public.create_voucher(
+    v_company, 'payment', '2026-04-14', 'advance paid against an order', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_prepaid, 'debit_amount', 600, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_cash,    'debit_amount', 0, 'credit_amount', 600, 'line_order', 1)
+    )
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform set_config('test.out_company', v_company::text, false);
+  perform set_config('test.out_cash', v_cash::text, false);
+  perform set_config('test.out_sales', v_sales::text, false);
+  perform set_config('test.out_expense', v_expense::text, false);
+  perform set_config('test.out_owing', v_owing::text, false);
+  perform set_config('test.out_settled', v_settled::text, false);
+  perform set_config('test.out_advance', v_advance::text, false);
+  perform set_config('test.out_retired', v_retired::text, false);
+  perform set_config('test.out_retired_nil', v_retired_nil::text, false);
+  perform set_config('test.out_opening', v_opening::text, false);
+  perform set_config('test.out_owed', v_owed::text, false);
+  perform set_config('test.out_prepaid', v_prepaid::text, false);
+end;
+$$;
+
+do $$
+declare
+  v_company uuid := current_setting('test.out_company')::uuid;
+  v_row record;
+  v_receivables numeric(18,2);
+  v_payables numeric(18,2);
+  v_first uuid;
+  v_descending boolean;
+begin
+  -- A customer who owes is a receivable, for the amount still standing, dated
+  -- by the last thing that touched him — not by the sale that opened the debt.
+  select * into v_row from public.get_outstanding_balances(v_company) o
+  where o.ledger_id = current_setting('test.out_owing')::uuid;
+
+  perform pg_temp.expect(
+    v_row.direction = 'receivable' and v_row.party_kind = 'customer'
+    and v_row.amount = 3500.00 and v_row.last_transaction_date = '2026-05-20'::date,
+    format('a customer who owes is a receivable for what is left (%s %s, last %s)',
+           v_row.direction, v_row.amount, v_row.last_transaction_date)
+  );
+
+  -- And a supplier who is owed is the mirror image.
+  select * into v_row from public.get_outstanding_balances(v_company) o
+  where o.ledger_id = current_setting('test.out_owed')::uuid;
+
+  perform pg_temp.expect(
+    v_row.direction = 'payable' and v_row.party_kind = 'supplier'
+    and v_row.amount = 3000.00 and v_row.last_transaction_date = '2026-05-02'::date,
+    format('a supplier who is owed is a payable for what is left (%s %s, last %s)',
+           v_row.direction, v_row.amount, v_row.last_transaction_date)
+  );
+
+  -- A party carried over from the old books and never posted to since is
+  -- still owed, and saying so is the point. last_transaction_date is null
+  -- because nothing has happened to him — inventing the opening date would be
+  -- reporting a transaction that was never entered.
+  select * into v_row from public.get_outstanding_balances(v_company) o
+  where o.ledger_id = current_setting('test.out_opening')::uuid;
+
+  perform pg_temp.expect(
+    v_row.direction = 'receivable' and v_row.amount = 250.00,
+    'an opening balance with no vouchers behind it is still outstanding'
+  );
+  perform pg_temp.expect(
+    v_row.last_transaction_date is null,
+    'and it has no last transaction date, because it has had no transactions'
+  );
+
+  -- 0017's rule, in a new report: is_active hides a ledger from the pickers,
+  -- never from the statements. A retired customer who never paid is money
+  -- that is still out there.
+  perform pg_temp.expect(
+    (select o.amount from public.get_outstanding_balances(v_company) o
+     where o.ledger_id = current_setting('test.out_retired')::uuid) = 700.00,
+    'an inactive ledger still holding a balance is still listed'
+  );
+  perform pg_temp.expect(
+    (select l.is_active from public.ledgers l
+     where l.id = current_setting('test.out_retired')::uuid) = false,
+    'and it really is inactive, so that assertion was not vacuous'
+  );
+
+  -- The totals the screen puts at the top of each section.
+  -- Receivable: 3500 owing + 700 retired + 250 opening + 600 supplier advance.
+  -- Payable:    3000 owed  + 900 customer advance.
+  select
+    coalesce(sum(o.amount) filter (where o.direction = 'receivable'), 0),
+    coalesce(sum(o.amount) filter (where o.direction = 'payable'), 0)
+  into v_receivables, v_payables
+  from public.get_outstanding_balances(v_company) o;
+
+  perform pg_temp.expect(
+    v_receivables = 5050.00 and v_payables = 3900.00,
+    format('the two totals are the sums of their own sides (in %s, out %s)', v_receivables, v_payables)
+  );
+
+  -- Biggest first: the largest debtor is what the user opened the screen for.
+  select o.ledger_id into v_first
+  from public.get_outstanding_balances(v_company) o limit 1;
+
+  perform pg_temp.expect(
+    v_first = current_setting('test.out_owing')::uuid,
+    'the largest outstanding amount comes back first'
+  );
+
+  select bool_and(ordered.amount <= ordered.prev_amount) into v_descending
+  from (
+    select o.amount, lag(o.amount) over () as prev_amount
+    from public.get_outstanding_balances(v_company) o
+  ) ordered
+  where ordered.prev_amount is not null;
+
+  perform pg_temp.expect(
+    v_descending,
+    'and the rest follow in descending order of amount'
+  );
+end;
+$$;
+
+-- ------------------------------- 31. and nothing that is not owed by a party
+
+\echo '31. And nothing that is not money owed by a party'
+
+-- The half that decides whether the list is worth opening. A settled customer
+-- who keeps appearing at zero, or a cash ledger listed as a debtor, turns the
+-- screen into something to scroll past.
+--
+-- The wrong-side cases are here rather than in 30 because they are the
+-- decision this function makes that the Balance Sheet had to make before it,
+-- in 0012: the side follows the sign of the balance, not the classification of
+-- the group. A customer in credit is not a receivable of negative value, it is
+-- money the shop owes.
+
+do $$
+declare
+  v_company uuid := current_setting('test.out_company')::uuid;
+  v_row record;
+  v_other_company uuid;
+  v_other_debtor uuid;
+  v_other_sales uuid;
+  v_group uuid;
+begin
+  -- A customer who paid an advance is a payable, and still says he is a
+  -- customer. Both halves matter: the direction is the accounting fact, and
+  -- the kind is what lets the screen explain the odd-looking row instead of
+  -- quietly filing him among the suppliers.
+  select * into v_row from public.get_outstanding_balances(v_company) o
+  where o.ledger_id = current_setting('test.out_advance')::uuid;
+
+  perform pg_temp.expect(
+    v_row.direction = 'payable' and v_row.amount = 900.00,
+    format('a customer sitting in credit is a payable, not a negative receivable (%s %s)',
+           v_row.direction, v_row.amount)
+  );
+  perform pg_temp.expect(
+    v_row.party_kind = 'customer',
+    'and he is still reported as a customer, so the screen can say why he is there'
+  );
+
+  -- The mirror: a supplier holding our advance owes us goods.
+  select * into v_row from public.get_outstanding_balances(v_company) o
+  where o.ledger_id = current_setting('test.out_prepaid')::uuid;
+
+  perform pg_temp.expect(
+    v_row.direction = 'receivable' and v_row.amount = 600.00 and v_row.party_kind = 'supplier',
+    format('a supplier holding an advance is a receivable, still reported as a supplier (%s %s)',
+           v_row.direction, v_row.amount)
+  );
+
+  -- Settled is settled. Not vacuous: the ledger exists, is active, and has two
+  -- vouchers behind it — the only reason it is absent is that it nets to nil.
+  perform pg_temp.expect(
+    (select count(*) from public.voucher_entries ve
+     where ve.ledger_id = current_setting('test.out_settled')::uuid) = 2
+    and (select l.is_active from public.ledgers l
+         where l.id = current_setting('test.out_settled')::uuid),
+    'the settled customer is an active ledger with entries against him'
+  );
+  perform pg_temp.expect(
+    not exists (
+      select 1 from public.get_outstanding_balances(v_company) o
+      where o.ledger_id = current_setting('test.out_settled')::uuid
+    ),
+    'and a party who has settled up does not appear at all'
+  );
+
+  perform pg_temp.expect(
+    not exists (
+      select 1 from public.get_outstanding_balances(v_company) o
+      where o.ledger_id = current_setting('test.out_retired_nil')::uuid
+    ),
+    'nor does an inactive party at nil — is_active is overridden by a balance, not by nothing'
+  );
+
+  -- Cash, sales and purchases all carry balances in this company. None of them
+  -- is a party, and a list that included them would answer a different
+  -- question than the one on the screen.
+  perform pg_temp.expect(
+    (select count(*) from public.get_trial_balance(v_company, '9999-12-31') tb
+     where tb.ledger_id in (
+       current_setting('test.out_cash')::uuid,
+       current_setting('test.out_sales')::uuid,
+       current_setting('test.out_expense')::uuid
+     ) and (tb.debit_balance <> 0 or tb.credit_balance <> 0)) = 3,
+    'the cash, sales and purchase ledgers all hold balances'
+  );
+  perform pg_temp.expect(
+    not exists (
+      select 1 from public.get_outstanding_balances(v_company) o
+      where o.ledger_id in (
+        current_setting('test.out_cash')::uuid,
+        current_setting('test.out_sales')::uuid,
+        current_setting('test.out_expense')::uuid
+      )
+    ),
+    'and none of them is listed as somebody who owes money'
+  );
+
+  -- The company argument scopes the answer. This block runs as the table owner
+  -- with RLS bypassed, so what is being tested is the function's own
+  -- company_id filter rather than the policy that would also stand in a real
+  -- user's way — and removing that filter is a mutation nothing else catches.
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Outstanding Other Co', '2025-04-01', 4, 'INR') returning id into v_other_company;
+
+  perform app_private.seed_chart_of_accounts(v_other_company);
+
+  select id into v_group from public.account_groups
+  where company_id = v_other_company and name = 'Sundry Debtors';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_other_company, v_group, 'ZZ Out Other Customer') returning id into v_other_debtor;
+
+  select id into v_group from public.account_groups
+  where company_id = v_other_company and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name)
+  values (v_other_company, v_group, 'ZZ Out Other Sales') returning id into v_other_sales;
+
+  perform public.create_voucher(
+    v_other_company, 'journal', '2026-04-05', 'another company''s credit sale', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_other_debtor, 'debit_amount', 9999, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_other_sales,  'debit_amount', 0, 'credit_amount', 9999, 'line_order', 1)
+    )
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select o.amount from public.get_outstanding_balances(v_other_company) o
+     where o.ledger_id = v_other_debtor) = 9999.00,
+    'the other company can see its own debtor in its own books'
+  );
+
+  -- 9999 is larger than anything in the first company's books, so had it
+  -- leaked it would be the first row rather than a missing one.
+  perform pg_temp.expect(
+    not exists (
+      select 1 from public.get_outstanding_balances(v_company) o
+      where o.ledger_id = v_other_debtor
+    ),
+    'and this company is told nothing about it'
+  );
+  perform pg_temp.expect(
+    (select count(*) from public.get_outstanding_balances(v_company)) = 6,
+    'this company sees six outstanding parties and no seventh'
+  );
+end;
+$$;
+
 \echo ''
 \echo 'ALL GUARANTEES HELD'
 

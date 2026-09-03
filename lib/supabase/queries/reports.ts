@@ -163,3 +163,47 @@ export async function getBalanceSheet(
     amount: r.amount,
   }));
 }
+
+export interface OutstandingRow {
+  ledgerId: string;
+  ledgerName: string;
+  /** What the party is: 'customer' | 'supplier'. */
+  partyKind: "customer" | "supplier";
+  /** Which way the money points: 'receivable' | 'payable'. */
+  direction: "receivable" | "payable";
+  /** Always positive — `direction` carries the sign. */
+  amount: number;
+  /** Null when the party's whole balance is an opening figure. */
+  lastTransactionDate: string | null;
+}
+
+/**
+ * Every customer and supplier still carrying a balance, biggest first.
+ *
+ * Life to date and unbounded by any as-of date, deliberately — see migration
+ * 0025. "Who owes me" has one answer, and it includes a bill dated next week
+ * that has already been entered.
+ *
+ * `direction` follows the sign of the balance rather than the party's group,
+ * so a customer sitting in credit comes back as a payable. `partyKind` still
+ * says he is a customer, which is what lets the screen explain the row.
+ */
+export async function getOutstanding(
+  supabase: SupabaseClient<Database>,
+  companyId: string
+): Promise<OutstandingRow[]> {
+  const { data, error } = await supabase.rpc("get_outstanding_balances", {
+    p_company_id: companyId,
+  });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    ledgerId: r.ledger_id,
+    ledgerName: r.ledger_name,
+    partyKind: r.party_kind as "customer" | "supplier",
+    direction: r.direction as "receivable" | "payable",
+    amount: r.amount,
+    // The generated type says `string`; the column is nullable and the
+    // generator does not model that for function returns.
+    lastTransactionDate: r.last_transaction_date ?? null,
+  }));
+}

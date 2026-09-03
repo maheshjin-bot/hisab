@@ -1009,6 +1009,26 @@ export type Database = {
         }[]
       }
       export_company_backup: { Args: { p_company_id: string }; Returns: Json }
+      // Hand-added, not generated. This file comes from production, which does
+      // not yet have migration 0024; regenerating before it is applied would
+      // delete this entry. Kept in the generator's own alphabetical order and
+      // shape so a later regeneration produces no diff here.
+      find_duplicate_bill: {
+        Args: {
+          p_company_id: string
+          p_exclude_voucher_id?: string
+          p_party_ledger_id: string
+          p_reference_number: string
+          p_voucher_date: string
+        }
+        Returns: {
+          reference_number: string
+          total_amount: number
+          voucher_date: string
+          voucher_id: string
+          voucher_number: string
+        }[]
+      }
       get_balance_sheet: {
         Args: { p_as_of_date: string; p_company_id: string }
         Returns: {
@@ -1076,6 +1096,25 @@ export type Database = {
           voucher_id: string
           voucher_number: string
           voucher_type: string
+        }[]
+      }
+      // Hand-added, not generated. This file comes from production, which does
+      // not yet have migration 0025; regenerating before it is applied would
+      // delete this entry. Kept in the generator's own alphabetical order and
+      // shape so a later regeneration produces no diff here — including
+      // last_transaction_date as `string`, which is how the generator renders
+      // a nullable date returned by a function. It really can be null (a party
+      // whose only balance is an opening figure), and
+      // lib/supabase/queries/reports.ts narrows it back.
+      get_outstanding_balances: {
+        Args: { p_company_id: string }
+        Returns: {
+          amount: number
+          direction: string
+          last_transaction_date: string
+          ledger_id: string
+          ledger_name: string
+          party_kind: string
         }[]
       }
       get_profit_and_loss: {
