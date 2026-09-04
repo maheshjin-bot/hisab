@@ -218,6 +218,17 @@ export function partyTypeForGroup(group: Pick<AccountGroup, "name" | "ledgerRole
 }
 
 /**
+ * The plain type to *offer* when a voucher field wants a given role — the
+ * first entry in PARTY_TYPES with that role, so a "Received Into (Cash /
+ * Bank)" field proposes a bank account and a "Customer" field a customer.
+ * Only a starting point for the "What is this?" picker; the user can change
+ * it. Null for roles that have no plain word (capital, loan, …).
+ */
+export function partyTypeForRole(role: LedgerRole): PartyType | null {
+  return PARTY_TYPES.find((t) => t.role === role)?.value ?? null;
+}
+
+/**
  * Every group a ledger of this type could legitimately live in, best first.
  *
  * A company can easily have more than one — "Sundry Debtors" plus a
