@@ -115,6 +115,111 @@ export function listFinancialYears(
   return years;
 }
 
+/**
+ * What the whole-period button and the shell call the one period of a company
+ * that keeps no financial years.
+ *
+ * Not a year label, and deliberately carries no digits: "FY 2026-27" printed
+ * over a book with no years is the exact confusion this setting exists to
+ * remove.
+ */
+export const CONTINUOUS_PERIOD_LABEL = "All time";
+
+/**
+ * The single period a continuous set of books is looked at through.
+ *
+ * A company with `uses_financial_years = false` keeps one unbroken book, so
+ * there is nothing to choose between and no closing date: the screens are
+ * drawn from the day the books began up to today, permanently. Returning a
+ * `FinancialYear` rather than a shape of its own is what keeps the dashboard,
+ * the report presets and the as-of date exactly as they are — each of them
+ * already reads `start`, `end` and "does this contain today", and each already
+ * has the right answer for those three once this is what it is handed.
+ *
+ * `start` and `end` are ordered rather than assumed, for the case
+ * listFinancialYears also has to cope with: books opened in advance. A period
+ * running from a future start back to today would return no rows from any
+ * report and would report itself as a closed period, which a book that is
+ * never closed cannot be.
+ *
+ * `startYear` is the calendar year the books opened in and never moves. It is
+ * the identity `useReportDateRange` tags a hand-typed range with, and a value
+ * that drifted with the calendar would throw that range away once a year for
+ * no reason the user could see.
+ */
+export function continuousBooksPeriod(bookBeginningDate: string, today: Date): FinancialYear {
+  const todayIso = isoLocalDate(today);
+  const [start, end] =
+    bookBeginningDate <= todayIso ? [bookBeginningDate, todayIso] : [todayIso, bookBeginningDate];
+
+  return {
+    startYear: Number(bookBeginningDate.slice(0, 4)),
+    label: CONTINUOUS_PERIOD_LABEL,
+    start,
+    end,
+  };
+}
+
+/**
+ * The periods a company's books can be looked at in: its financial years, or
+ * the one continuous period if it keeps none.
+ *
+ * The single place that switch is made on the client. Everything downstream —
+ * which period is selected, whether the selector renders at all, what the
+ * report range opens on — falls out of the list this returns.
+ */
+export function listBooksPeriods(
+  usesFinancialYears: boolean,
+  bookBeginningDate: string,
+  financialYearStartMonth: number,
+  today: Date
+): FinancialYear[] {
+  return usesFinancialYears
+    ? listFinancialYears(bookBeginningDate, financialYearStartMonth, today)
+    : [continuousBooksPeriod(bookBeginningDate, today)];
+}
+
+/**
+ * Whether a financial year may be named on the screen for this company yet.
+ *
+ * `useFinancialYear` defaults `usesFinancialYears` to true while the
+ * companies query is still in flight, and that default is right: it is what
+ * every company created before this setting existed is, so the shell settles
+ * onto the behaviour it has always had rather than onto the rarer one.
+ *
+ * But a default is an assumption, and reading it as an answer put "FY
+ * 2026-27" over a book that keeps no years for one paint — the exact
+ * confusion the setting exists to remove. The fix belongs here rather than in
+ * the default: the gate is *knowing*, and a year is named once the company
+ * has answered and not before.
+ */
+export function showsFinancialYear(companySettingsKnown: boolean, usesFinancialYears: boolean): boolean {
+  return companySettingsKnown && usesFinancialYears;
+}
+
+/**
+ * Whether a hand-typed report range still belongs to the period on screen.
+ *
+ * A range typed while looking at FY 2025-26 must not survive a switch to FY
+ * 2026-27, or the year selector would appear to do nothing — which is what
+ * tagging the range with `startYear` is for.
+ *
+ * The same loading window that put a year on the screen too early also gave
+ * that range the wrong period to be tagged with. Until the company answers,
+ * the selected period is a placeholder — the financial year the calendar is
+ * in — and a continuous book's period is the year its books opened in, a
+ * different number. So a range typed in that window was thrown away the
+ * instant the company loaded, over a period change the user never made.
+ *
+ * `null` is the tag for "typed before there was a real period to tag it
+ * with". Such a range applies to whichever period turns up; the caller
+ * re-tags it the moment one does, so it never outlives a period the user did
+ * choose.
+ */
+export function reportRangeStillApplies(overrideStartYear: number | null, selectedStartYear: number): boolean {
+  return overrideStartYear === null || overrideStartYear === selectedStartYear;
+}
+
 /** True when `today` falls inside `year` — i.e. this is the year the business is actually trading in. */
 export function isCurrentFinancialYear(year: FinancialYear, today: Date): boolean {
   const iso = isoLocalDate(today);

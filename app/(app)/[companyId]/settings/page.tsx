@@ -186,10 +186,24 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
               <p className="text-xs text-muted-foreground">Book beginning date</p>
               <p className="font-medium">{company?.bookBeginningDate}</p>
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Financial year starts</p>
+            {/* Both of these are stated, never offered. The database refuses
+                to change uses_financial_years once a voucher exists — a book
+                cannot hold two numbering schemes — so a disabled control the
+                user could reason about is worse than a sentence saying why.
+                book_beginning_date has always been shown the same way. */}
+            <div className="sm:col-span-2">
+              <p className="text-xs text-muted-foreground">Books</p>
               <p className="font-medium">
-                {company && new Date(2000, company.financialYearStartMonth - 1).toLocaleString("en-IN", { month: "long" })}
+                {company?.usesFinancialYears
+                  ? `Closed each financial year, starting in ${new Date(2000, company.financialYearStartMonth - 1).toLocaleString("en-IN", { month: "long" })}`
+                  : "One continuous set of books, never closed"}
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {company?.usesFinancialYears
+                  ? "Voucher numbering restarts each year — SAL/2025-26/00001."
+                  : "Voucher numbering runs on without restarting — SAL/00001, SAL/00002…"}{" "}
+                Fixed when the company was created: the numbers already issued cannot be rewritten, so this cannot
+                change once the books have started. To keep books the other way, create another company.
               </p>
             </div>
             <Field className="col-span-2">

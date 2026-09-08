@@ -60,8 +60,14 @@ export default function CompaniesPage() {
               </div>
               <div>
                 <p className="text-sm font-medium">{company.name}</p>
+                {/* A company that keeps no financial years has a start month
+                    in the column and no use for it; printing it here would be
+                    the one place in the app that still claimed it had years. */}
                 <p className="text-xs text-muted-foreground">
-                  FY starts {new Date(2000, company.financialYearStartMonth - 1).toLocaleString("en-IN", { month: "long" })} · {company.role}
+                  {company.usesFinancialYears
+                    ? `FY starts ${new Date(2000, company.financialYearStartMonth - 1).toLocaleString("en-IN", { month: "long" })}`
+                    : "Continuous books"}{" "}
+                  · {company.role}
                 </p>
               </div>
             </div>

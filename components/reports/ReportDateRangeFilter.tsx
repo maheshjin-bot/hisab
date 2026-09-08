@@ -8,6 +8,7 @@ import {
   financialYearAsOfDate,
   isCurrentFinancialYear,
   isoMonthStart,
+  reportRangeStillApplies,
   type FinancialYear,
 } from "@/lib/utils/financial-year";
 
@@ -58,16 +59,37 @@ export function defaultDateRange(financialYear: FinancialYear, today: Date = new
  * in: a range typed while looking at FY 2025-26 must not survive a switch to
  * FY 2026-27, or the selector would appear to do nothing. Tagging the
  * override with its year expresses that without an effect that resets state.
+ *
+ * The one period that is not a choice is the one before the company has
+ * answered. `useFinancialYear` hands back a placeholder until then — the
+ * financial year the calendar is in — and a continuous book's period is a
+ * different one, so a range typed in that window was tagged with a year that
+ * was about to change and was discarded the instant the company loaded. It is
+ * tagged `null` instead, meaning "typed before there was a real period", and
+ * re-tagged below the moment there is one.
  */
 export function useReportDateRange(companyId: string) {
-  const { selected, financialYearStartMonth, isCurrent } = useFinancialYear(companyId);
+  const { selected, financialYearStartMonth, isCurrent, companySettingsKnown } = useFinancialYear(companyId);
 
-  const [override, setOverride] = useState<{ startYear: number; range: DateRange } | null>(null);
-  const range = override?.startYear === selected.startYear ? override.range : defaultDateRange(selected);
+  const [override, setOverride] = useState<{ startYear: number | null; range: DateRange } | null>(null);
+
+  // Adjusting state during render, which is what React asks for when state
+  // has to follow a value that changed underneath it. An effect would repaint
+  // once with the range already thrown away, and this loop is finite: after
+  // the write the tag is a number and the condition is false.
+  if (override !== null && override.startYear === null && companySettingsKnown) {
+    setOverride({ startYear: selected.startYear, range: override.range });
+  }
+
+  const range =
+    override !== null && reportRangeStillApplies(override.startYear, selected.startYear)
+      ? override.range
+      : defaultDateRange(selected);
 
   return {
     range,
-    setRange: (next: DateRange) => setOverride({ startYear: selected.startYear, range: next }),
+    setRange: (next: DateRange) =>
+      setOverride({ startYear: companySettingsKnown ? selected.startYear : null, range: next }),
     financialYearStartMonth,
     financialYear: selected,
     isCurrentFinancialYear: isCurrent,
@@ -81,14 +103,23 @@ export function useReportDateRange(companyId: string) {
  * hand holds only until a different year is chosen.
  */
 export function useReportAsOfDate(companyId: string) {
-  const { selected, asOfDate, isCurrent } = useFinancialYear(companyId);
+  const { selected, asOfDate, isCurrent, companySettingsKnown } = useFinancialYear(companyId);
 
-  const [override, setOverride] = useState<{ startYear: number; date: string } | null>(null);
-  const value = override?.startYear === selected.startYear ? override.date : asOfDate;
+  const [override, setOverride] = useState<{ startYear: number | null; date: string } | null>(null);
+
+  if (override !== null && override.startYear === null && companySettingsKnown) {
+    setOverride({ startYear: selected.startYear, date: override.date });
+  }
+
+  const value =
+    override !== null && reportRangeStillApplies(override.startYear, selected.startYear)
+      ? override.date
+      : asOfDate;
 
   return {
     asOfDate: value,
-    setAsOfDate: (next: string) => setOverride({ startYear: selected.startYear, date: next }),
+    setAsOfDate: (next: string) =>
+      setOverride({ startYear: companySettingsKnown ? selected.startYear : null, date: next }),
     financialYear: selected,
     isCurrentFinancialYear: isCurrent,
   };

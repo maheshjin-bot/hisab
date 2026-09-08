@@ -7,6 +7,14 @@ export interface Company {
   id: string;
   name: string;
   financialYearStartMonth: number;
+  /**
+   * False for a company that keeps one continuous set of books and one
+   * numbering series that never restarts. Fixed at creation: the database
+   * refuses to change it once a voucher exists, so nothing in the app offers
+   * to. `financialYearStartMonth` still holds its default for such a company
+   * and means nothing — nothing reads it.
+   */
+  usesFinancialYears: boolean;
   baseCurrency: string;
   bookBeginningDate: string;
   lockDate: string | null;
@@ -30,6 +38,7 @@ function mapCompany(row: Database["public"]["Tables"]["companies"]["Row"]): Comp
     id: row.id,
     name: row.name,
     financialYearStartMonth: row.financial_year_start_month,
+    usesFinancialYears: row.uses_financial_years,
     baseCurrency: row.base_currency,
     bookBeginningDate: row.book_beginning_date,
     lockDate: row.lock_date,
@@ -65,6 +74,11 @@ export interface CreateCompanyInput {
   bookBeginningDate: string;
   financialYearStartMonth?: number;
   baseCurrency?: string;
+  /**
+   * Defaults to true, matching the RPC, so a caller that says nothing creates
+   * the company it always did.
+   */
+  usesFinancialYears?: boolean;
 }
 
 /** Creates a company, makes the caller its admin, and seeds the chart of accounts — all atomically in the RPC. */
@@ -74,6 +88,7 @@ export async function createCompany(supabase: SupabaseClient<Database>, input: C
     p_book_beginning_date: input.bookBeginningDate,
     p_financial_year_start_month: input.financialYearStartMonth ?? 4,
     p_base_currency: input.baseCurrency ?? "INR",
+    p_uses_financial_years: input.usesFinancialYears ?? true,
   });
   if (error) throw error;
   return data as string;

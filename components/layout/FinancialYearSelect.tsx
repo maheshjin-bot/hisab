@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useFinancialYear } from "@/hooks/useFinancialYear";
 import { useGlobalShortcuts } from "@/lib/keyboard/useGlobalShortcuts";
-import { parseIsoLocalDate } from "@/lib/utils/financial-year";
+import { parseIsoLocalDate, showsFinancialYear } from "@/lib/utils/financial-year";
 import { cn } from "@/lib/utils";
 
 /** "1 Apr 2025" — short enough to put both ends of a year on one menu row. */
@@ -49,12 +49,14 @@ export function FinancialYearSelect({
    */
   bindShortcut?: boolean;
 }) {
-  const { years, selected, isCurrent, select } = useFinancialYear(companyId);
+  const { companySettingsKnown, usesFinancialYears, years, selected, isCurrent, select } =
+    useFinancialYear(companyId);
   const [open, setOpen] = useState(false);
+  const showsYear = showsFinancialYear(companySettingsKnown, usesFinancialYears);
 
   const bindings = useMemo(
     () =>
-      bindShortcut
+      bindShortcut && showsYear
         ? [
             {
               keys: "alt+y",
@@ -64,9 +66,29 @@ export function FinancialYearSelect({
             },
           ]
         : [],
-    [bindShortcut]
+    [bindShortcut, showsYear]
   );
   useGlobalShortcuts(bindings);
+
+  // A company that keeps one continuous set of books has one period and
+  // nothing to switch between, so there is nothing here to render. The
+  // decision is made here rather than by the sidebar because the sidebar has
+  // only the company id, which is all this needs to answer it — and because
+  // there is exactly one place to keep right this way.
+  //
+  // And nothing is rendered before the company has answered either, which is
+  // the other half of the same gate. `usesFinancialYears` defaults to true
+  // while the companies query is in flight — correctly, because that is what
+  // every company that predates the setting is — so trusting it on its own
+  // painted "FY 2026-27" over a bahi-khata for a frame. The default is right
+  // and belongs where it is; the render is what has to wait.
+  //
+  // The hooks above it run on every render on purpose: skipping a hook on
+  // some renders and not others is the one thing React will not allow, and
+  // the company is not known until the first of them has answered. Alt+Y goes
+  // with the menu — `bindings` is empty here — so the shortcut does not sit
+  // there doing nothing.
+  if (!showsYear) return null;
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>

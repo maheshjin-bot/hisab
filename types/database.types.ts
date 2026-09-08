@@ -443,6 +443,7 @@ export type Database = {
           name: string
           phone: string | null
           updated_at: string
+          uses_financial_years: boolean
         }
         Insert: {
           address?: string | null
@@ -458,6 +459,7 @@ export type Database = {
           name: string
           phone?: string | null
           updated_at?: string
+          uses_financial_years?: boolean
         }
         Update: {
           address?: string | null
@@ -473,6 +475,7 @@ export type Database = {
           name?: string
           phone?: string | null
           updated_at?: string
+          uses_financial_years?: boolean
         }
         Relationships: []
       }
@@ -984,6 +987,7 @@ export type Database = {
           p_book_beginning_date: string
           p_financial_year_start_month?: number
           p_name: string
+          p_uses_financial_years?: boolean
         }
         Returns: string
       }

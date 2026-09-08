@@ -4562,6 +4562,1437 @@ begin
 end;
 $$;
 
+-- ------------------------------- 38. a book that is never closed at year end
+
+\echo '38. A company that keeps one continuous set of books numbers straight through the year end'
+
+-- A small trader who files no returns keeps a bahi-khata: one unbroken set of
+-- books and one bill series that never restarts. HISAB forced a financial year
+-- on him — the number reset every April and read SAL/2025-26/00001, which is
+-- a year he does not keep and a segment he did not ask for.
+--
+-- companies.uses_financial_years is the choice, made once at creation. With it
+-- off, next_voucher_number writes a single constant into financial_year_label
+-- instead of deriving one from the date, so the primary key of
+-- voucher_number_sequences, the unique index on vouchers and every query that
+-- groups by that column keep working untouched — only the value changes — and
+-- the displayed number loses its middle segment.
+--
+-- The constant is the literal 'continuous', and it is asserted here rather
+-- than derived, because it is written into the books and into every backup
+-- file permanently. A test that computed it the same way the code does would
+-- agree with any value the code happened to pick, including a later change to
+-- one, which is the one thing this column cannot survive.
+
+do $$
+declare
+  v_off uuid;
+  v_on uuid;
+  v_group uuid;
+  v_off_cash uuid; v_off_sales uuid;
+  v_on_cash uuid;  v_on_sales uuid;
+  v_off_lines jsonb;
+  v_on_lines jsonb;
+  v_v uuid;
+begin
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency, uses_financial_years)
+  values ('ZZ Bahi Khata Co', '2025-04-01', 4, 'INR', false) returning id into v_off;
+
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Closes Yearly Co', '2025-04-01', 4, 'INR') returning id into v_on;
+
+  perform app_private.seed_chart_of_accounts(v_off);
+  perform app_private.seed_chart_of_accounts(v_on);
+
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ Bahi Cash') returning id into v_off_cash;
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ Bahi Sales') returning id into v_off_sales;
+
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ Yearly Cash') returning id into v_on_cash;
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ Yearly Sales') returning id into v_on_sales;
+
+  v_off_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_off_cash,  'debit_amount', 100, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_off_sales, 'debit_amount', 0, 'credit_amount', 100, 'line_order', 1));
+  v_on_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_on_cash,  'debit_amount', 100, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_on_sales, 'debit_amount', 0, 'credit_amount', 100, 'line_order', 1));
+
+  -- Two sales either side of 1 April, and a third two years on. An April
+  -- company is the one whose boundary the default hides, so it is the one to
+  -- cross.
+  perform public.create_voucher(v_off, 'sales', '2026-03-20', 'before the year end', null, null, v_off_lines);
+  perform public.create_voucher(v_off, 'sales', '2026-04-05', 'after the year end',  null, null, v_off_lines);
+  perform public.create_voucher(v_off, 'sales', '2028-01-11', 'two years later',     null, null, v_off_lines);
+  perform public.create_voucher(v_off, 'receipt', '2026-04-06', 'a receipt',         null, null, v_off_lines);
+
+  perform public.create_voucher(v_on, 'sales', '2026-03-20', 'before the year end', null, null, v_on_lines);
+  perform public.create_voucher(v_on, 'sales', '2026-04-05', 'after the year end',  null, null, v_on_lines);
+
+  perform set_config('test.fy_off', v_off::text, false);
+  perform set_config('test.fy_on', v_on::text, false);
+end;
+$$;
+
+do $$
+declare
+  v_off uuid := current_setting('test.fy_off')::uuid;
+  v_on uuid := current_setting('test.fy_on')::uuid;
+  v_numbers text[];
+begin
+  -- Existing companies must keep today's behaviour, so the column defaults to
+  -- "years on". ZZ Test Co at the top of this file was inserted without ever
+  -- naming it.
+  perform pg_temp.expect(
+    (select c.uses_financial_years from public.companies c where c.id = current_setting('test.company')::uuid),
+    'a company created without saying anything keeps financial years'
+  );
+  perform pg_temp.expect(
+    (select c.uses_financial_years from public.companies c where c.id = v_on),
+    'and so does the year-keeping company in this section'
+  );
+  perform pg_temp.expect(
+    (select not c.uses_financial_years from public.companies c where c.id = v_off),
+    'while the bahi-khata company does not'
+  );
+
+  -- THE NUMBERS. One series, no year segment, no reset in April and none two
+  -- years later either.
+  select array_agg(v.voucher_number order by v.voucher_date)
+    into v_numbers
+  from public.vouchers v where v.company_id = v_off and v.voucher_type = 'sales';
+
+  perform pg_temp.expect(
+    v_numbers = array['SAL/00001','SAL/00002','SAL/00003'],
+    format('a continuous book numbers straight through the year end (%s)', v_numbers)
+  );
+
+  select array_agg(v.voucher_number order by v.voucher_date)
+    into v_numbers
+  from public.vouchers v where v.company_id = v_on and v.voucher_type = 'sales';
+
+  perform pg_temp.expect(
+    v_numbers = array['SAL/2025-26/00001','SAL/2026-27/00001'],
+    format('and a year-keeping book still resets each April, year in the number (%s)', v_numbers)
+  );
+
+  -- Per voucher type, not per book: the receipt series starts at its own 1.
+  perform pg_temp.expect(
+    (select v.voucher_number from public.vouchers v
+     where v.company_id = v_off and v.voucher_type = 'receipt') = 'REC/00001',
+    'each voucher type still has a series of its own'
+  );
+
+  -- THE STORED LABEL. This is the value that goes into the table, into the
+  -- primary key of the sequences, and into every backup file, forever.
+  perform pg_temp.expect(
+    (select bool_and(v.financial_year_label = 'continuous')
+     from public.vouchers v where v.company_id = v_off),
+    'every voucher in a continuous book is labelled ''continuous'''
+  );
+  perform pg_temp.expect(
+    app_private.financial_year_label(v_off, '2026-03-20') = 'continuous'
+    and app_private.financial_year_label(v_off, '2028-01-11') = 'continuous',
+    'the label function returns the same constant whatever the date'
+  );
+  perform pg_temp.expect(
+    app_private.financial_year_label(v_on, '2026-03-20') = '2025-26'
+    and app_private.financial_year_label(v_on, '2026-04-05') = '2026-27',
+    'and still derives the year from the date for a company that keeps years'
+  );
+
+  -- THE SEQUENCES. The table shape is untouched, so the difference is visible
+  -- as one key per type instead of one key per type per year.
+  perform pg_temp.expect(
+    (select count(*) from public.voucher_number_sequences s
+     where s.company_id = v_off and s.voucher_type = 'sales') = 1,
+    'a continuous book keeps one sales sequence for its whole life'
+  );
+  perform pg_temp.expect(
+    (select s.next_number from public.voucher_number_sequences s
+     where s.company_id = v_off and s.voucher_type = 'sales'
+       and s.financial_year_label = 'continuous') = 4,
+    'pointing at the next number in that one series'
+  );
+  perform pg_temp.expect(
+    (select count(*) from public.voucher_number_sequences s
+     where s.company_id = v_on and s.voucher_type = 'sales') = 2,
+    'while a year-keeping book opens a new sales sequence every year'
+  );
+
+  -- The constant must never be mistakable for a year label, or a reader of the
+  -- table cannot tell a continuous book from a mis-derived one.
+  perform pg_temp.expect(
+    (select count(*) from public.voucher_number_sequences s
+     where s.company_id = v_off and s.financial_year_label ~ '^\d{4}-\d{2}$') = 0,
+    'and nothing in a continuous book is labelled with anything year-shaped'
+  );
+end;
+$$;
+
+-- --------------------------- 39. the year-end guard has no year end to guard
+
+\echo '39. The re-dating guard fires for a year-keeping book and not for a continuous one'
+
+-- 0018 refuses a voucher date change that crosses a financial year, because
+-- the number was minted from the year the voucher had at the time and would
+-- then claim the wrong one. A continuous book has no boundary to cross and no
+-- year in the number, so there is nothing for the guard to protect and it must
+-- not fire — while the company next door, which does close its books, must
+-- still be refused on exactly the same move.
+--
+-- Both halves are asserted here rather than only the new one. The cheap way to
+-- stop the guard firing for a continuous book is to stop it firing at all, and
+-- that mutation passes every test that only looks at the bahi-khata.
+
+do $$
+declare
+  v_off uuid := current_setting('test.fy_off')::uuid;
+  v_on uuid := current_setting('test.fy_on')::uuid;
+  v_off_cash uuid; v_off_sales uuid; v_on_cash uuid; v_on_sales uuid;
+  v_off_lines jsonb; v_on_lines jsonb;
+  v_off_voucher uuid; v_on_voucher uuid;
+  v_number text;
+begin
+  select id into v_off_cash  from public.ledgers where company_id = v_off and name = 'ZZ Bahi Cash';
+  select id into v_off_sales from public.ledgers where company_id = v_off and name = 'ZZ Bahi Sales';
+  select id into v_on_cash   from public.ledgers where company_id = v_on  and name = 'ZZ Yearly Cash';
+  select id into v_on_sales  from public.ledgers where company_id = v_on  and name = 'ZZ Yearly Sales';
+
+  v_off_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_off_cash,  'debit_amount', 300, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_off_sales, 'debit_amount', 0, 'credit_amount', 300, 'line_order', 1));
+  v_on_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_on_cash,  'debit_amount', 300, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_on_sales, 'debit_amount', 0, 'credit_amount', 300, 'line_order', 1));
+
+  v_off_voucher := public.create_voucher(v_off, 'journal', '2026-04-05', 'keyed on the wrong side of April', null, null, v_off_lines);
+  v_on_voucher  := public.create_voucher(v_on,  'journal', '2026-04-05', 'keyed on the wrong side of April', null, null, v_on_lines);
+
+  select voucher_number into v_number from public.vouchers where id = v_off_voucher;
+  perform pg_temp.expect(v_number = 'JRN/00001',
+    format('the continuous book''s journal carries no year in its number (%s)', v_number));
+
+  -- The correction that used to be refused. 2026-03-31 is a different
+  -- financial year on an April company and the same continuous book.
+  perform public.update_voucher(v_off_voucher, '2026-03-31', 'corrected to March', null, null, v_off_lines);
+
+  perform pg_temp.expect(
+    (select v.voucher_date from public.vouchers v where v.id = v_off_voucher) = '2026-03-31'::date,
+    'a continuous book''s voucher can be re-dated across 1 April'
+  );
+  perform pg_temp.expect(
+    (select v.voucher_number from public.vouchers v where v.id = v_off_voucher) = v_number
+    and (select v.financial_year_label from public.vouchers v where v.id = v_off_voucher) = 'continuous',
+    'and keeps the number and the label it was issued with'
+  );
+
+  -- Years apart is still one book.
+  perform public.update_voucher(v_off_voucher, '2029-09-09', 'corrected again, years away', null, null, v_off_lines);
+  perform pg_temp.expect(
+    (select v.voucher_date from public.vouchers v where v.id = v_off_voucher) = '2029-09-09'::date
+    and (select v.voucher_number from public.vouchers v where v.id = v_off_voucher) = v_number,
+    'however far it moves, because there is no boundary to cross'
+  );
+
+  -- The other half: the guard is intact where there is a year.
+  perform pg_temp.expect_error(
+    format($q$select public.update_voucher(%L, '2026-03-31', 'dragged back a year', null, null, %L::jsonb)$q$,
+           v_on_voucher, v_on_lines::text),
+    'Cannot move voucher',
+    'a year-keeping book still refuses the same re-date'
+  );
+  perform pg_temp.expect(
+    (select v.voucher_date from public.vouchers v where v.id = v_on_voucher) = '2026-04-05'::date,
+    'and the refused edit left that voucher exactly as it was'
+  );
+end;
+$$;
+
+-- ----------------- 40. the choice is fixed the moment the first voucher lands
+
+\echo '40. How a company numbers its books cannot change once a voucher exists'
+
+-- Flipping this after a voucher has been entered leaves two numbering schemes
+-- in one book: SAL/2025-26/00001 and SAL/00001 side by side, each minted from
+-- a different key, with no way to say which series a third voucher belongs to.
+-- Retro-fitting the existing numbers is the other option, and it means
+-- rewriting a uniqueness key that the old numbers can collide inside — two
+-- years' worth of SAL/…/00001 becoming one SAL/00001.
+--
+-- So the database refuses it, and refuses it the moment there is anything to
+-- protect and not before. Before the first voucher the choice costs nothing
+-- and a user who picked wrong in the New Company dialog must be able to say so.
+--
+-- This is the rule book_beginning_date already follows in practice — set once,
+-- at creation, never offered again — and the opposite of the mistake recorded
+-- as audit finding F-17, where financial_year_start_month can still be changed
+-- after posting and silently re-bases every year after it. F-17 is not fixed
+-- here; this column simply does not repeat it.
+
+do $$
+declare
+  v_company uuid;
+  v_group uuid;
+  v_cash uuid;
+  v_sales uuid;
+  v_lines jsonb;
+  v_voucher uuid;
+begin
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Undecided Co', '2025-04-01', 4, 'INR') returning id into v_company;
+  perform app_private.seed_chart_of_accounts(v_company);
+
+  -- Before the first voucher it is free, in both directions and repeatedly.
+  update public.companies set uses_financial_years = false where id = v_company;
+  perform pg_temp.expect(
+    (select not c.uses_financial_years from public.companies c where c.id = v_company),
+    'an empty book can be switched to one continuous set of books'
+  );
+
+  update public.companies set uses_financial_years = true where id = v_company;
+  perform pg_temp.expect(
+    (select c.uses_financial_years from public.companies c where c.id = v_company),
+    'and switched back again'
+  );
+
+  update public.companies set uses_financial_years = false where id = v_company;
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ Und Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ Und Sales') returning id into v_sales;
+
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 700, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 700, 'line_order', 1));
+
+  -- A ledger is not a voucher. Setting up the chart of accounts, naming the
+  -- customers, keying the opening balances — none of that mints a number, and
+  -- a user who gets to the end of it and realises they picked wrong has lost
+  -- nothing yet.
+  perform pg_temp.expect(
+    (select count(*) from public.vouchers v where v.company_id = v_company) = 0
+    and (select count(*) from public.ledgers l where l.company_id = v_company) = 2,
+    'ledgers on their own do not freeze the choice'
+  );
+  update public.companies set uses_financial_years = true where id = v_company;
+  update public.companies set uses_financial_years = false where id = v_company;
+  perform pg_temp.expect(
+    (select not c.uses_financial_years from public.companies c where c.id = v_company),
+    'so it is still free to change with a chart of accounts in place'
+  );
+
+  v_voucher := public.create_voucher(v_company, 'sales', '2026-04-05', 'the first entry', null, null, v_lines);
+
+  perform pg_temp.expect_error(
+    format('update public.companies set uses_financial_years = true where id = %L', v_company),
+    'two numbering schemes',
+    'once a voucher exists the choice cannot be changed'
+  );
+  perform pg_temp.expect_error(
+    format('update public.companies set uses_financial_years = true where id = %L', v_company),
+    'SAL/00001',
+    'and the refusal names a number already issued, so the user can see what is at stake'
+  );
+
+  perform pg_temp.expect(
+    (select not c.uses_financial_years from public.companies c where c.id = v_company),
+    'the refused change left the setting alone'
+  );
+
+  -- Everything else about the company is still editable — this freezes one
+  -- column, not the settings page.
+  update public.companies set lock_date = '2026-04-01', name = 'ZZ Undecided Co (renamed)'
+  where id = v_company;
+  perform pg_temp.expect(
+    (select c.lock_date from public.companies c where c.id = v_company) = '2026-04-01'::date,
+    'the lock date can still be set on a company that has posted'
+  );
+
+  -- A whole-row rewrite that restates the same value is not a change, and must
+  -- not be refused: that is the shape restore_company_backup() writes, and the
+  -- shape any UPDATE naming every column takes.
+  update public.companies set uses_financial_years = false, lock_date = null where id = v_company;
+  perform pg_temp.expect(
+    (select c.lock_date from public.companies c where c.id = v_company) is null,
+    'and an update restating the same setting alongside another change goes through'
+  );
+
+  -- A deleted voucher still holds its number, so it still counts.
+  update public.vouchers set is_deleted = true where id = v_voucher;
+  perform pg_temp.expect_error(
+    format('update public.companies set uses_financial_years = true where id = %L', v_company),
+    'two numbering schemes',
+    'a voucher deleted in the app still holds its number, so it still freezes the choice'
+  );
+
+  perform set_config('test.fy_frozen', v_company::text, false);
+end;
+$$;
+
+do $$
+declare
+  v_company uuid;
+  v_group uuid;
+  v_cash uuid;
+  v_sales uuid;
+  v_lines jsonb;
+begin
+  -- The mirror image. A guard that only looked at one direction would let a
+  -- year-keeping book be quietly turned into a continuous one, which is the
+  -- worse of the two: its numbers already carry years the new scheme cannot
+  -- mint.
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Frozen Yearly Co', '2025-04-01', 4, 'INR') returning id into v_company;
+  perform app_private.seed_chart_of_accounts(v_company);
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ FY Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ FY Sales') returning id into v_sales;
+
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 400, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 400, 'line_order', 1));
+
+  perform public.create_voucher(v_company, 'sales', '2026-04-05', 'the first entry', null, null, v_lines);
+
+  perform pg_temp.expect_error(
+    format('update public.companies set uses_financial_years = false where id = %L', v_company),
+    'two numbering schemes',
+    'a year-keeping book that has posted cannot be turned into a continuous one either'
+  );
+  perform pg_temp.expect(
+    (select c.uses_financial_years from public.companies c where c.id = v_company),
+    'and it is still a year-keeping book afterwards'
+  );
+end;
+$$;
+
+-- ------------------------ 41. a backup that remembers how the book is numbered
+
+\echo '41. Backup and restore carry the choice, and the numbering that depends on it'
+
+-- export_company_backup builds the company with to_jsonb(c), so the column
+-- joins the file the moment it exists — asserted rather than assumed, for the
+-- reason section 23 gives.
+--
+-- The restore is the half that loses data. It names the company's columns one
+-- by one on both paths, and on the 'new' path it calls create_company(), which
+-- until now had no way to be told. A backup of a bahi-khata restored as a
+-- year-keeping company would carry every voucher's 'continuous' label across
+-- and then mint SAL/2026-27/00001 beside SAL/00001 on the very next sale.
+
+do $$
+declare
+  v_user uuid;
+  v_company uuid;
+  v_target uuid;
+  v_restored uuid;
+  v_group uuid;
+  v_cash uuid;
+  v_sales uuid;
+  v_lines jsonb;
+  v_payload jsonb;
+  v_number text;
+  v_numbers text[];
+begin
+  v_user := pg_temp.make_user('zz-continuous-backup@hisab.invalid');
+  perform pg_temp.act_as(v_user);
+
+  -- Through the RPC, which is the other half of this section: create_company
+  -- has to be able to carry the choice at all.
+  v_company := public.create_company('ZZ Bahi Backup Co', '2025-04-01', 4::smallint, 'INR', false);
+
+  perform pg_temp.expect(
+    (select not c.uses_financial_years from public.companies c where c.id = v_company),
+    'create_company can be told to keep one continuous set of books'
+  );
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ BB Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ BB Sales') returning id into v_sales;
+
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 150, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 150, 'line_order', 1));
+
+  perform public.create_voucher(v_company, 'sales', '2026-03-20', 'before the year end', null, null, v_lines);
+  perform public.create_voucher(v_company, 'sales', '2026-04-05', 'after the year end',  null, null, v_lines);
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  v_payload := public.export_company_backup(v_company);
+
+  perform pg_temp.expect(
+    (v_payload->'company'->>'uses_financial_years')::boolean = false,
+    'the backup file records that this company keeps no financial years'
+  );
+
+  -- ---- restored as a new company ----------------------------------------
+  v_restored := public.restore_company_backup(v_payload, 'new', null);
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    v_restored <> v_company
+    and (select not c.uses_financial_years from public.companies c where c.id = v_restored),
+    'a restored copy keeps one continuous set of books'
+  );
+
+  select array_agg(v.voucher_number order by v.voucher_date) into v_numbers
+  from public.vouchers v where v.company_id = v_restored;
+  perform pg_temp.expect(
+    v_numbers = array['SAL/00001','SAL/00002'],
+    format('with the numbers it was backed up with (%s)', v_numbers)
+  );
+
+  -- The assertion the round trip is actually for: the restored book carries on
+  -- numbering the way it did, rather than starting a year series beside its
+  -- own history.
+  perform public.create_voucher(
+    v_restored, 'sales', '2026-04-09', 'entered after the restore', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', (select id from public.ledgers where company_id = v_restored and name = 'ZZ BB Cash'),
+                         'debit_amount', 150, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', (select id from public.ledgers where company_id = v_restored and name = 'ZZ BB Sales'),
+                         'debit_amount', 0, 'credit_amount', 150, 'line_order', 1)));
+
+  select v.voucher_number into v_number from public.vouchers v
+  where v.company_id = v_restored and v.narration = 'entered after the restore';
+  perform pg_temp.expect(
+    v_number = 'SAL/00003',
+    format('and the next sale continues that same series (%s)', v_number)
+  );
+
+  -- ---- restored over a year-keeping company ------------------------------
+  -- The overwrite path deletes every voucher before it touches the company
+  -- row, so the freeze in section 40 permits this: the book being replaced is
+  -- empty by the time the setting is written.
+  v_target := public.create_company('ZZ Overwrite Target Co', '2025-04-01', 4::smallint, 'INR');
+  perform pg_temp.expect(
+    (select c.uses_financial_years from public.companies c where c.id = v_target),
+    'the company about to be overwritten keeps financial years'
+  );
+
+  perform public.restore_company_backup(v_payload, 'overwrite', v_target);
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select not c.uses_financial_years from public.companies c where c.id = v_target),
+    'restoring over it makes it a continuous book, as the file says'
+  );
+
+  select array_agg(v.voucher_number order by v.voucher_date) into v_numbers
+  from public.vouchers v where v.company_id = v_target;
+  perform pg_temp.expect(
+    v_numbers = array['SAL/00001','SAL/00002'],
+    format('with the file''s numbering and nothing of its own left (%s)', v_numbers)
+  );
+
+  -- ---- a file written before the column existed --------------------------
+  -- Every backup taken until today has no such key, and must restore as what
+  -- it was: a company that keeps financial years.
+  --
+  -- The fixture is a year-keeping company's file with the key removed, not
+  -- this section's bahi-khata with the key removed. A backup written before
+  -- 0027 can only have come from a company that kept financial years — there
+  -- was no other kind — so its vouchers carry year labels. A file whose
+  -- vouchers are labelled 'continuous' and whose company row says nothing is
+  -- not an old file; it is the contradiction section 45 refuses, and building
+  -- this case out of one would have been asserting behaviour on a file that
+  -- cannot exist.
+  v_target := public.create_company('ZZ Pre-column Backup Co', '2025-04-01', 4::smallint, 'INR');
+  select id into v_group from public.account_groups where company_id = v_target and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_target, v_group, 'ZZ PC Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_target and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_target, v_group, 'ZZ PC Sales') returning id into v_sales;
+  perform public.create_voucher(
+    v_target, 'sales', '2026-04-05', 'a year-keeping entry', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_cash,  'debit_amount', 150, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 150, 'line_order', 1)));
+  set constraints all immediate;
+  set constraints all deferred;
+
+  v_payload := public.export_company_backup(v_target);
+  perform pg_temp.expect(
+    (select bool_and(e->>'financial_year_label' ~ '^\d{4}-\d{2}$')
+       from jsonb_array_elements(v_payload->'vouchers') e),
+    'the stand-in for an old file carries the year labels an old file carried'
+  );
+
+  v_restored := public.restore_company_backup(
+    jsonb_set(v_payload, '{company}', (v_payload->'company') - 'uses_financial_years'),
+    'new', null
+  );
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select c.uses_financial_years from public.companies c where c.id = v_restored),
+    'a backup written before the column existed restores as a year-keeping company'
+  );
+
+  perform pg_temp.act_as(null);
+end;
+$$;
+
+-- ------------------------------- 42. two books, two schemes, no interference
+
+\echo '42. A continuous book and a year-keeping one, side by side, do not touch each other'
+
+-- One accountant keeps several sets of books at once, and now they can be
+-- numbered two different ways. The sequences are keyed
+-- (company_id, voucher_type, financial_year_label), so the isolation is the
+-- company_id in that key doing its job — which is worth asserting, because the
+-- constant is the first value in that column ever shared by two companies that
+-- disagree about what it means.
+
+do $$
+declare
+  v_off uuid;
+  v_on uuid;
+  v_group uuid;
+  v_off_lines jsonb;
+  v_on_lines jsonb;
+  v_id uuid;
+  v_numbers text[];
+begin
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency, uses_financial_years)
+  values ('ZZ Side A Bahi Co', '2025-04-01', 4, 'INR', false) returning id into v_off;
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Side B Yearly Co', '2025-04-01', 4, 'INR') returning id into v_on;
+
+  perform app_private.seed_chart_of_accounts(v_off);
+  perform app_private.seed_chart_of_accounts(v_on);
+
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ SA Cash') returning id into v_id;
+  v_off_lines := jsonb_build_array(jsonb_build_object('ledger_id', v_id, 'debit_amount', 60, 'credit_amount', 0, 'line_order', 0));
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ SA Sales') returning id into v_id;
+  v_off_lines := v_off_lines || jsonb_build_array(jsonb_build_object('ledger_id', v_id, 'debit_amount', 0, 'credit_amount', 60, 'line_order', 1));
+
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ SB Cash') returning id into v_id;
+  v_on_lines := jsonb_build_array(jsonb_build_object('ledger_id', v_id, 'debit_amount', 60, 'credit_amount', 0, 'line_order', 0));
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ SB Sales') returning id into v_id;
+  v_on_lines := v_on_lines || jsonb_build_array(jsonb_build_object('ledger_id', v_id, 'debit_amount', 0, 'credit_amount', 60, 'line_order', 1));
+
+  -- Interleaved, and across the boundary, because a shared sequence would only
+  -- show up as an off-by-one and an alternating one at that.
+  perform public.create_voucher(v_off, 'sales', '2026-03-01', 'A1', null, null, v_off_lines);
+  perform public.create_voucher(v_on,  'sales', '2026-03-02', 'B1', null, null, v_on_lines);
+  perform public.create_voucher(v_off, 'sales', '2026-04-03', 'A2', null, null, v_off_lines);
+  perform public.create_voucher(v_on,  'sales', '2026-04-04', 'B2', null, null, v_on_lines);
+  perform public.create_voucher(v_off, 'sales', '2026-04-05', 'A3', null, null, v_off_lines);
+
+  select array_agg(v.voucher_number order by v.voucher_date) into v_numbers
+  from public.vouchers v where v.company_id = v_off;
+  perform pg_temp.expect(
+    v_numbers = array['SAL/00001','SAL/00002','SAL/00003'],
+    format('the continuous book counted only its own vouchers (%s)', v_numbers)
+  );
+
+  select array_agg(v.voucher_number order by v.voucher_date) into v_numbers
+  from public.vouchers v where v.company_id = v_on;
+  perform pg_temp.expect(
+    v_numbers = array['SAL/2025-26/00001','SAL/2026-27/00001'],
+    format('and the year-keeping book counted only its own (%s)', v_numbers)
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.voucher_number_sequences s
+     where s.financial_year_label = 'continuous' and s.company_id = v_on) = 0,
+    'no ''continuous'' sequence was opened for the year-keeping book'
+  );
+  perform pg_temp.expect(
+    (select count(*) from public.voucher_number_sequences s
+     where s.company_id = v_off and s.financial_year_label <> 'continuous') = 0,
+    'and no year sequence for the continuous one'
+  );
+
+  -- The two labels are the same column and now hold two kinds of value, so the
+  -- unique index on vouchers has to keep both apart within one company and
+  -- across two.
+  perform pg_temp.expect(
+    (select count(distinct v.company_id) from public.vouchers v
+     where v.financial_year_label = 'continuous'
+       and v.voucher_number = 'SAL/00001') >= 2,
+    'two different companies can each hold SAL/00001 under the same label'
+  );
+end;
+$$;
+
+-- ------------ 43. the two other things that reach for a financial year alone
+
+\echo '43. The duplicate-bill warning and the undo''s rewind both follow the book they are in'
+
+-- Two functions derive or group by financial_year_label on their own, and both
+-- had to be looked at rather than assumed:
+--
+--   * find_duplicate_bill (0024) scopes the search to the financial year the
+--     date falls in, so that a supplier who restarts at 1 every April is not
+--     reported as a duplicate of himself. A book with no year has no such
+--     restart to allow for and one unbroken run of inbound paper, so the whole
+--     book is the right scope — which is what asking
+--     app_private.financial_year_label() for the label produces, with no
+--     special case anywhere in 0024.
+--
+--   * revert_company_changes_since (0019) rewinds each sequence to one above
+--     the highest surviving sequence_number under its key. The key is whatever
+--     is in the column, so a continuous book rewinds as one series.
+
+do $$
+declare
+  v_off uuid;
+  v_on uuid;
+  v_group uuid;
+  v_off_supplier uuid; v_off_expense uuid;
+  v_on_supplier uuid;  v_on_expense uuid;
+begin
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency, uses_financial_years)
+  values ('ZZ Bahi Bills Co', '2025-04-01', 4, 'INR', false) returning id into v_off;
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Yearly Bills Co', '2025-04-01', 4, 'INR') returning id into v_on;
+
+  perform app_private.seed_chart_of_accounts(v_off);
+  perform app_private.seed_chart_of_accounts(v_on);
+
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Sundry Creditors';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ BBill Supplier') returning id into v_off_supplier;
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Direct Expenses';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ BBill Purchases') returning id into v_off_expense;
+
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Sundry Creditors';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ YBill Supplier') returning id into v_on_supplier;
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Direct Expenses';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ YBill Purchases') returning id into v_on_expense;
+
+  perform public.create_voucher(
+    v_off, 'purchase', '2026-03-20', 'the bill as first entered', 'INV-77', '2026-03-19', '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_off_supplier, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Cement', 'quantity', 1, 'rate', 900,
+                         'revenue_ledger_id', v_off_expense))));
+
+  perform public.create_voucher(
+    v_on, 'purchase', '2026-03-20', 'the bill as first entered', 'INV-77', '2026-03-19', '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_on_supplier, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Cement', 'quantity', 1, 'rate', 900,
+                         'revenue_ledger_id', v_on_expense))));
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  -- Not vacuous: both bills really are on the books, and both are found inside
+  -- their own year.
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_off, v_off_supplier, 'INV-77', '2026-03-25', null)) = 1
+    and (select count(*) from public.find_duplicate_bill(v_on, v_on_supplier, 'INV-77', '2026-03-25', null)) = 1,
+    'the same supplier''s bill number is found again within the same period, in both books'
+  );
+
+  -- 2026-04-10 is the next financial year for the year-keeping company and the
+  -- same unbroken book for the other. The two answers are both right, and they
+  -- differ.
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_off, v_off_supplier, 'INV-77', '2026-04-10', null)) = 1,
+    'a continuous book finds the same bill number again after April, because it is one series of paper'
+  );
+  perform pg_temp.expect(
+    (select count(*) from public.find_duplicate_bill(v_on, v_on_supplier, 'INV-77', '2026-04-10', null)) = 0,
+    'while a year-keeping book still allows a supplier to restart his numbering each year'
+  );
+end;
+$$;
+
+do $$
+declare
+  v_user uuid;
+  v_company uuid;
+  v_group uuid;
+  v_cash uuid;
+  v_sales uuid;
+  v_lines jsonb;
+  v_mark timestamptz;
+  v_voucher uuid;
+  v_number text;
+begin
+  v_user := pg_temp.make_user('zz-continuous-undo@hisab.invalid');
+  perform pg_temp.act_as(v_user);
+
+  v_company := public.create_company('ZZ Bahi Undo Co', '2025-04-01', 4::smallint, 'INR', false);
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ BU Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ BU Sales') returning id into v_sales;
+
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 90, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 90, 'line_order', 1));
+
+  perform pg_temp.stamp_audit(v_company, now() - interval '60 minutes');
+  v_mark := now() - interval '45 minutes';
+
+  -- Either side of April, so the three that come off are three that a
+  -- year-keyed rewind would have split across two sequences.
+  perform public.create_voucher(v_company, 'sales', '2026-03-28', 'first', null, null, v_lines);
+  perform pg_temp.stamp_audit(v_company, now() - interval '40 minutes');
+  perform public.create_voucher(v_company, 'sales', '2026-04-02', 'second', null, null, v_lines);
+  perform pg_temp.stamp_audit(v_company, now() - interval '35 minutes');
+  perform public.create_voucher(v_company, 'sales', '2026-04-03', 'third', null, null, v_lines);
+  perform pg_temp.stamp_audit(v_company, now() - interval '20 minutes');
+
+  perform pg_temp.expect(
+    (select s.next_number from public.voucher_number_sequences s
+     where s.company_id = v_company and s.voucher_type = 'sales'
+       and s.financial_year_label = 'continuous') = 4,
+    'three sales in a continuous book leave the one series pointing at the fourth number'
+  );
+
+  perform public.revert_company_changes_since(v_company, v_mark);
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select count(*) from public.vouchers v where v.company_id = v_company) = 0
+    and (select s.next_number from public.voucher_number_sequences s
+         where s.company_id = v_company and s.voucher_type = 'sales'
+           and s.financial_year_label = 'continuous') = 1,
+    'undoing all three rewinds that one series to 1'
+  );
+
+  v_voucher := public.create_voucher(v_company, 'sales', '2026-04-08', 'after the undo', null, null, v_lines);
+  select voucher_number into v_number from public.vouchers where id = v_voucher;
+  perform pg_temp.expect(
+    v_number = 'SAL/00001',
+    format('so the first number is reissued rather than lost (%s)', v_number)
+  );
+
+  perform pg_temp.act_as(null);
+end;
+$$;
+
+
+-- ------------------------- 44. the label's shape is a constraint, not a habit
+
+\echo '44. A voucher''s financial year label is either the constant or a year'
+
+-- 0027 turns financial_year_label into a column with exactly two kinds of
+-- value in it: the constant a continuous book writes, and a financial year.
+-- Until now that was a property of one function — everything that mints a
+-- number asks app_private.financial_year_label() for the label, so everything
+-- that mints a number gets one of the two. Nothing said it where the database
+-- could enforce it, and the column is written directly by
+-- restore_company_backup(), by the undo's replay, and by anything else that
+-- ever inserts a voucher row.
+--
+-- The point is the *pair*: the uniqueness key is
+-- (company_id, voucher_type, financial_year_label, voucher_number), so a
+-- third kind of label is a third numbering series, and SAL/00001 can then
+-- appear twice in one book without the key noticing.
+--
+-- The constraint asks continuous_year_label() for the constant rather than
+-- repeating it, which is asserted below rather than assumed: the migration
+-- spends a paragraph on that value living in one place, and a constraint that
+-- had its own copy would be a second one.
+
+do $$
+declare
+  v_company uuid;
+  v_shape text;
+begin
+  select pg_get_constraintdef(c.oid) into v_shape
+    from pg_constraint c
+   where c.conrelid = 'public.vouchers'::regclass
+     and c.conname = 'vouchers_financial_year_label_shape';
+
+  perform pg_temp.expect(
+    v_shape is not null,
+    'the shape of the label is written on the table itself'
+  );
+  perform pg_temp.expect(
+    v_shape like '%continuous_year_label%',
+    'and it reads the constant from the one place the constant is defined'
+  );
+
+  -- Not vacuous, and the reason the constraint could be added as valid rather
+  -- than NOT VALID: every row a fully seeded database holds already satisfies
+  -- it. This runs after every fixture above has posted, so it is a statement
+  -- about a database with books in it and not about an empty one.
+  perform pg_temp.expect(
+    (select count(*) from public.vouchers v) > 0,
+    'there are vouchers on the books to make the next assertion mean something'
+  );
+  perform pg_temp.expect(
+    (select count(*) from public.vouchers v
+      where v.financial_year_label <> app_private.continuous_year_label()
+        and v.financial_year_label !~ '^\d{4}-\d{2}$') = 0,
+    'and not one voucher in this database carries a label of any other shape'
+  );
+
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency, uses_financial_years)
+  values ('ZZ Label Shape Co', '2025-04-01', 4, 'INR', false) returning id into v_company;
+
+  -- Everything that reads as "the label failed to compute" — which is the one
+  -- thing the constant must never be mistaken for.
+  perform pg_temp.expect_error(
+    format($q$insert into public.vouchers
+      (company_id, voucher_type, voucher_number, sequence_number, financial_year_label, voucher_date)
+      values (%L, 'sales', 'SAL/00001', 1, '', '2026-04-05')$q$, v_company),
+    'vouchers_financial_year_label_shape',
+    'an empty label is refused by the database'
+  );
+  perform pg_temp.expect_error(
+    format($q$insert into public.vouchers
+      (company_id, voucher_type, voucher_number, sequence_number, financial_year_label, voucher_date)
+      values (%L, 'sales', 'SAL/00001', 1, 'none', '2026-04-05')$q$, v_company),
+    'vouchers_financial_year_label_shape',
+    'and so is a word that reads as an absence'
+  );
+
+  -- Near-misses of the constant. The key is an exact-match key, so a label
+  -- that merely looks like the constant is a separate series.
+  perform pg_temp.expect_error(
+    format($q$insert into public.vouchers
+      (company_id, voucher_type, voucher_number, sequence_number, financial_year_label, voucher_date)
+      values (%L, 'sales', 'SAL/00001', 1, 'Continuous', '2026-04-05')$q$, v_company),
+    'vouchers_financial_year_label_shape',
+    'a differently-cased constant is not the constant'
+  );
+  perform pg_temp.expect_error(
+    format($q$insert into public.vouchers
+      (company_id, voucher_type, voucher_number, sequence_number, financial_year_label, voucher_date)
+      values (%L, 'sales', 'SAL/00001', 1, 'continuous ', '2026-04-05')$q$, v_company),
+    'vouchers_financial_year_label_shape',
+    'nor is the constant with a space on the end of it'
+  );
+
+  -- Near-misses of a year.
+  perform pg_temp.expect_error(
+    format($q$insert into public.vouchers
+      (company_id, voucher_type, voucher_number, sequence_number, financial_year_label, voucher_date)
+      values (%L, 'sales', 'SAL/00001', 1, '2025', '2026-04-05')$q$, v_company),
+    'vouchers_financial_year_label_shape',
+    'a bare year is not a financial year label'
+  );
+  perform pg_temp.expect_error(
+    format($q$insert into public.vouchers
+      (company_id, voucher_type, voucher_number, sequence_number, financial_year_label, voucher_date)
+      values (%L, 'sales', 'SAL/00001', 1, '2025-2026', '2026-04-05')$q$, v_company),
+    'vouchers_financial_year_label_shape',
+    'nor is a four-digit second half'
+  );
+
+  -- The one case where the constraint is deliberately stronger than 0004's
+  -- derivation. The label is built by concatenating the start year rather than
+  -- padding it, so a voucher dated in the first millennium would derive
+  -- '999-00'. No set of books anyone keeps opens before the year 1000, and a
+  -- three-digit segment reads as a mis-derived year — which is the one thing
+  -- the constant was chosen to be distinguishable from — so it is refused
+  -- here rather than tolerated. 0027 says so in prose; this is where it is
+  -- true.
+  perform pg_temp.expect_error(
+    format($q$insert into public.vouchers
+      (company_id, voucher_type, voucher_number, sequence_number, financial_year_label, voucher_date)
+      values (%L, 'sales', 'SAL/00001', 1, '999-00', '2026-04-05')$q$, v_company),
+    'vouchers_financial_year_label_shape',
+    'and an unpadded first-millennium year is refused rather than tolerated'
+  );
+end;
+$$;
+
+-- The other half, and the one that stops all of the above being satisfied by
+-- a constraint that refuses everything: both labels the issuer actually mints
+-- go in, through the ordinary door, in the two kinds of book.
+
+do $$
+declare
+  v_off uuid;
+  v_on uuid;
+  v_group uuid;
+  v_cash uuid;
+  v_sales uuid;
+  v_lines jsonb;
+  v_voucher uuid;
+begin
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency, uses_financial_years)
+  values ('ZZ Shape Bahi Co', '2025-04-01', 4, 'INR', false) returning id into v_off;
+  insert into public.companies (name, book_beginning_date, financial_year_start_month, base_currency)
+  values ('ZZ Shape Yearly Co', '2025-04-01', 4, 'INR') returning id into v_on;
+  perform app_private.seed_chart_of_accounts(v_off);
+  perform app_private.seed_chart_of_accounts(v_on);
+
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ SB Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ SB Sales') returning id into v_sales;
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 10, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 10, 'line_order', 1));
+  v_voucher := public.create_voucher(v_off, 'sales', '2026-04-05', 'shape, continuous', null, null, v_lines);
+  perform pg_temp.expect(
+    (select v.financial_year_label from public.vouchers v where v.id = v_voucher) = 'continuous',
+    'the constraint lets through what a continuous book actually mints'
+  );
+
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ SY Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ SY Sales') returning id into v_sales;
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 10, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 10, 'line_order', 1));
+  v_voucher := public.create_voucher(v_on, 'sales', '2026-04-05', 'shape, year-keeping', null, null, v_lines);
+  perform pg_temp.expect(
+    (select v.financial_year_label from public.vouchers v where v.id = v_voucher) = '2026-27',
+    'and what a year-keeping one mints'
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+end;
+$$;
+
+-- --------------------- 45. a backup has to agree with itself about its books
+
+\echo '45. A backup whose setting contradicts its own labels is refused'
+
+-- The company's setting and the labels its own vouchers carry are two
+-- statements about the same thing, read out of the same file, and the restore
+-- never compared them. Hand-edit the flag — or supply it as JSON null, which
+-- the coalesce reads as absent — and the restore builds a company marked
+-- year-keeping whose every voucher is labelled 'continuous'. The next sale
+-- then mints SAL/2026-27/00001 beside SAL/00001: a book with two numbering
+-- schemes in it, which is exactly the state migration 0027's section 6 exists
+-- to make unreachable.
+--
+-- Section 44's constraint cannot catch this, and that is why both exist. Both
+-- values are individually well-formed; only their combination is wrong.
+--
+-- The refusal has to come before anything is written, which the overwrite
+-- case below is what proves: the target still holds its own books afterwards.
+
+do $$
+declare
+  v_user uuid;
+  v_off uuid;
+  v_on uuid;
+  v_target uuid;
+  v_restored uuid;
+  v_group uuid;
+  v_cash uuid;
+  v_sales uuid;
+  v_lines jsonb;
+  p_off jsonb;
+  p_on jsonb;
+  v_before text[];
+begin
+  v_user := pg_temp.make_user('zz-backup-agrees@hisab.invalid');
+  perform pg_temp.act_as(v_user);
+
+  v_off := public.create_company('ZZ Agree Bahi Co', '2025-04-01', 4::smallint, 'INR', false);
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ AB Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ AB Sales') returning id into v_sales;
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 60, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 60, 'line_order', 1));
+  perform public.create_voucher(v_off, 'sales', '2026-03-20', 'before April', null, null, v_lines);
+  perform public.create_voucher(v_off, 'sales', '2026-04-05', 'after April', null, null, v_lines);
+
+  v_on := public.create_company('ZZ Agree Yearly Co', '2025-04-01', 4::smallint, 'INR');
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ AY Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ AY Sales') returning id into v_sales;
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 60, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 60, 'line_order', 1));
+  perform public.create_voucher(v_on, 'sales', '2026-03-20', 'before April', null, null, v_lines);
+  perform public.create_voucher(v_on, 'sales', '2026-04-05', 'after April', null, null, v_lines);
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  p_off := public.export_company_backup(v_off);
+  p_on  := public.export_company_backup(v_on);
+
+  -- The honest files first. A refusal that also refused the real thing would
+  -- be worse than the hole it closes, and this is the half that says so.
+  v_restored := public.restore_company_backup(p_off, 'new', null);
+  set constraints all deferred;
+  perform pg_temp.expect(
+    (select not c.uses_financial_years from public.companies c where c.id = v_restored)
+    and (select bool_and(v.financial_year_label = 'continuous') from public.vouchers v where v.company_id = v_restored),
+    'a backup that agrees with itself restores exactly as before, continuous'
+  );
+  v_restored := public.restore_company_backup(p_on, 'new', null);
+  set constraints all deferred;
+  perform pg_temp.expect(
+    (select c.uses_financial_years from public.companies c where c.id = v_restored)
+    and (select bool_and(v.financial_year_label ~ '^\d{4}-\d{2}$') from public.vouchers v where v.company_id = v_restored),
+    'and so does a year-keeping one'
+  );
+
+  -- The flag hand-edited on a continuous file: the dangerous direction, and
+  -- the one the audit reached by editing one key in a downloaded file.
+  perform pg_temp.expect_error(
+    format('select public.restore_company_backup(%L::jsonb, ''new'')',
+           jsonb_set(p_off, '{company,uses_financial_years}', 'true'::jsonb)),
+    'contradicts itself',
+    'a file claiming financial years over continuous labels is refused'
+  );
+  perform pg_temp.expect_error(
+    format('select public.restore_company_backup(%L::jsonb, ''new'')',
+           jsonb_set(p_off, '{company,uses_financial_years}', 'true'::jsonb)),
+    'continuous',
+    'and the refusal names the label that disagreed'
+  );
+
+  -- The mirror. A check written in one direction would let a year-keeping
+  -- book be restored as a continuous one, which is the worse of the two: its
+  -- numbers already carry years the new scheme cannot mint.
+  perform pg_temp.expect_error(
+    format('select public.restore_company_backup(%L::jsonb, ''new'')',
+           jsonb_set(p_on, '{company,uses_financial_years}', 'false'::jsonb)),
+    'contradicts itself',
+    'a file claiming no financial years over year labels is refused too'
+  );
+  perform pg_temp.expect_error(
+    format('select public.restore_company_backup(%L::jsonb, ''new'')',
+           jsonb_set(p_on, '{company,uses_financial_years}', 'false'::jsonb)),
+    '2025-26',
+    'and that refusal names one of the years it found'
+  );
+
+  -- The key present and null, which the coalesce reads as the documented
+  -- default. That default is right for a file written before the column
+  -- existed and says nothing at all here, so the comparison is what has to
+  -- catch it.
+  perform pg_temp.expect_error(
+    format('select public.restore_company_backup(%L::jsonb, ''new'')',
+           jsonb_set(p_off, '{company,uses_financial_years}', 'null'::jsonb)),
+    'contradicts itself',
+    'a null setting on a continuous file is caught by the same comparison'
+  );
+
+  -- And the case that must keep working, in both of its shapes: a file
+  -- written before the column existed restores as what its own labels say it
+  -- was — a company that keeps financial years.
+  v_restored := public.restore_company_backup(
+    jsonb_set(p_on, '{company}', (p_on->'company') - 'uses_financial_years'), 'new', null);
+  set constraints all deferred;
+  perform pg_temp.expect(
+    (select c.uses_financial_years from public.companies c where c.id = v_restored),
+    'a file with no such key still restores as a year-keeping company'
+  );
+  v_restored := public.restore_company_backup(
+    jsonb_set(p_on, '{company,uses_financial_years}', 'null'::jsonb), 'new', null);
+  set constraints all deferred;
+  perform pg_temp.expect(
+    (select c.uses_financial_years from public.companies c where c.id = v_restored),
+    'and so does one whose key is present and null, which is read the same way'
+  );
+
+  -- The numbering rows are checked as well as the vouchers. They carry the
+  -- same label in the same key, and a file whose vouchers were all removed
+  -- but whose series were not would go on minting under the wrong scheme.
+  perform pg_temp.expect_error(
+    format('select public.restore_company_backup(%L::jsonb, ''new'')',
+           jsonb_set(
+             ((p_off - 'vouchers') - 'voucher_entries') - 'invoice_lines',
+             '{company,uses_financial_years}', 'true'::jsonb)),
+    'contradicts itself',
+    'a file with no vouchers left is still caught by its numbering series'
+  );
+
+  -- The overwrite path refuses before it deletes anything, which is the only
+  -- reason this refusal is safe to make at all: a restore that had already
+  -- cleared the target and then refused would have destroyed a book to
+  -- protect it.
+  v_target := public.create_company('ZZ Agree Target Co', '2025-04-01', 4::smallint, 'INR');
+  select id into v_group from public.account_groups where company_id = v_target and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_target, v_group, 'ZZ AT Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_target and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_target, v_group, 'ZZ AT Sales') returning id into v_sales;
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 25, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 25, 'line_order', 1));
+  perform public.create_voucher(v_target, 'sales', '2026-04-05', 'the target''s own book', null, null, v_lines);
+  set constraints all immediate;
+  set constraints all deferred;
+
+  select array_agg(v.voucher_number order by v.voucher_number) into v_before
+  from public.vouchers v where v.company_id = v_target;
+
+  perform pg_temp.expect_error(
+    format('select public.restore_company_backup(%L::jsonb, ''overwrite'', %L::uuid)',
+           jsonb_set(p_off, '{company,uses_financial_years}', 'true'::jsonb), v_target),
+    'contradicts itself',
+    'the overwrite path refuses the same file'
+  );
+  perform pg_temp.expect(
+    (select array_agg(v.voucher_number order by v.voucher_number)
+       from public.vouchers v where v.company_id = v_target) = v_before
+    and (select c.uses_financial_years from public.companies c where c.id = v_target),
+    format('and the company it would have overwritten still has its own books (%s)', v_before)
+  );
+
+  perform pg_temp.act_as(null);
+end;
+$$;
+
+-- ------------- 46. the freeze counts the numbers issued, not the rows left
+
+\echo '46. Undoing every voucher does not unfreeze how a book is numbered'
+
+-- The guard counted surviving public.vouchers, and revert_company_changes_since
+-- hard-deletes vouchers. So a book whose every entry had been undone counted
+-- zero and the setting flipped freely — even though numbers had been minted
+-- and, in the guard's own words, "may be on paper".
+--
+-- The evidence survives the undo: 0019 rewinds voucher_number_sequences
+-- rather than deleting it, precisely so the numbers can be reissued, and that
+-- rewound row is the database's own record that SAL/00001 was once issued
+-- under this setting. Counting it alongside the vouchers is what closes the
+-- door.
+--
+-- A book that issued numbers and undid them is not a book that never issued
+-- any, and the message has to be honest about which of the two it is looking
+-- at: there is no voucher left to name, so it names the series instead.
+
+do $$
+declare
+  v_user uuid;
+  v_off uuid;
+  v_on uuid;
+  v_never uuid;
+  v_group uuid;
+  v_cash uuid;
+  v_sales uuid;
+  v_lines jsonb;
+  v_mark timestamptz;
+begin
+  v_user := pg_temp.make_user('zz-freeze-after-undo@hisab.invalid');
+  perform pg_temp.act_as(v_user);
+
+  v_off := public.create_company('ZZ Undone Bahi Co', '2025-04-01', 4::smallint, 'INR', false);
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ UB Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ UB Sales') returning id into v_sales;
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 45, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 45, 'line_order', 1));
+
+  perform pg_temp.stamp_audit(v_off, now() - interval '60 minutes');
+  v_mark := now() - interval '45 minutes';
+
+  perform public.create_voucher(v_off, 'sales', '2026-04-05', 'first', null, null, v_lines);
+  perform pg_temp.stamp_audit(v_off, now() - interval '40 minutes');
+  perform public.create_voucher(v_off, 'sales', '2026-04-06', 'second', null, null, v_lines);
+  perform pg_temp.stamp_audit(v_off, now() - interval '35 minutes');
+
+  perform public.revert_company_changes_since(v_off, v_mark);
+  set constraints all deferred;
+
+  -- The state the old guard could not see: no vouchers, but a series that has
+  -- been rewound rather than removed.
+  perform pg_temp.expect(
+    (select count(*) from public.vouchers v where v.company_id = v_off) = 0
+    and (select s.next_number from public.voucher_number_sequences s
+          where s.company_id = v_off and s.voucher_type = 'sales'
+            and s.financial_year_label = 'continuous') = 1,
+    'undoing the whole book leaves no vouchers and a series rewound to 1'
+  );
+
+  perform pg_temp.expect_error(
+    format('update public.companies set uses_financial_years = true where id = %L', v_off),
+    'two numbering schemes',
+    'and the choice is still frozen, because numbers were issued under it'
+  );
+  perform pg_temp.expect_error(
+    format('update public.companies set uses_financial_years = true where id = %L', v_off),
+    'may be on paper',
+    'and the refusal still says why, rather than borrowing a wording about vouchers that no longer exist'
+  );
+  perform pg_temp.expect_error(
+    format('update public.companies set uses_financial_years = true where id = %L', v_off),
+    'SAL',
+    'and it names the series that issued them'
+  );
+  perform pg_temp.expect(
+    (select not c.uses_financial_years from public.companies c where c.id = v_off),
+    'the refused change left the setting alone'
+  );
+
+  -- The mirror, so that a guard fixed in one direction is not passed off as
+  -- fixed in both.
+  v_on := public.create_company('ZZ Undone Yearly Co', '2025-04-01', 4::smallint, 'INR');
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ UY Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ UY Sales') returning id into v_sales;
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 45, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 45, 'line_order', 1));
+
+  perform pg_temp.stamp_audit(v_on, now() - interval '60 minutes');
+  v_mark := now() - interval '45 minutes';
+  perform public.create_voucher(v_on, 'sales', '2026-04-05', 'first', null, null, v_lines);
+  perform pg_temp.stamp_audit(v_on, now() - interval '40 minutes');
+
+  perform public.revert_company_changes_since(v_on, v_mark);
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select count(*) from public.vouchers v where v.company_id = v_on) = 0,
+    'the year-keeping book is empty of vouchers too'
+  );
+  perform pg_temp.expect_error(
+    format('update public.companies set uses_financial_years = false where id = %L', v_on),
+    'two numbering schemes',
+    'and it is frozen for the same reason, by its own rewound series'
+  );
+
+  -- And the over-correction half. A book that has genuinely never issued a
+  -- number — a chart of accounts, ledgers, opening balances, no voucher ever
+  -- saved — must still be free to change, which is the whole of section 40's
+  -- "why it can change before".
+  v_never := public.create_company('ZZ Never Numbered Co', '2025-04-01', 4::smallint, 'INR');
+  select id into v_group from public.account_groups where company_id = v_never and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_never, v_group, 'ZZ NN Cash') returning id into v_cash;
+
+  perform pg_temp.expect(
+    (select count(*) from public.voucher_number_sequences s where s.company_id = v_never) = 0,
+    'a book that has never saved a voucher has no numbering series at all'
+  );
+  update public.companies set uses_financial_years = false where id = v_never;
+  update public.companies set uses_financial_years = true where id = v_never;
+  perform pg_temp.expect(
+    (select c.uses_financial_years from public.companies c where c.id = v_never),
+    'so it can still be switched, both ways, with ledgers already on the books'
+  );
+
+  perform pg_temp.act_as(null);
+end;
+$$;
+
+-- --------------- 47. the refusal names the first number, not the first date
+
+\echo '47. The freeze names the first number issued, not the earliest-dated voucher'
+
+-- The guard picked the voucher to name with `order by voucher_date`, so a
+-- back-dated entry made it report "the first of them numbered SAL/00002" —
+-- naming a number that is not the first. The user is being asked to accept
+-- that a number is already out there; naming the wrong one undermines the
+-- only evidence the message offers.
+--
+-- This shows up in a continuous book because there is no year fence keeping
+-- entry order and date order together. A year-keeping book can do it too, and
+-- the second half below pins the tie-break that settles it.
+
+do $$
+declare
+  v_user uuid;
+  v_off uuid;
+  v_on uuid;
+  v_group uuid;
+  v_cash uuid;
+  v_sales uuid;
+  v_lines jsonb;
+  v_message text;
+begin
+  v_user := pg_temp.make_user('zz-first-number@hisab.invalid');
+  perform pg_temp.act_as(v_user);
+
+  v_off := public.create_company('ZZ Backdated Bahi Co', '2024-01-01', 4::smallint, 'INR', false);
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ BD Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_off and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_off, v_group, 'ZZ BD Sales') returning id into v_sales;
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 30, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 30, 'line_order', 1));
+
+  -- Entered in this order, so SAL/00001 is the later date and SAL/00002 the
+  -- earlier one. That is ordinary: a trader enters June's sale, then finds
+  -- January's docket under the counter.
+  perform public.create_voucher(v_off, 'sales', '2026-06-01', 'entered first', null, null, v_lines);
+  perform public.create_voucher(v_off, 'sales', '2025-01-01', 'entered second, dated earlier', null, null, v_lines);
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select v.voucher_number from public.vouchers v
+      where v.company_id = v_off and v.voucher_date = '2026-06-01') = 'SAL/00001'
+    and (select v.voucher_number from public.vouchers v
+          where v.company_id = v_off and v.voucher_date = '2025-01-01') = 'SAL/00002',
+    'the book numbers by the order things were entered, not by the dates on them'
+  );
+
+  v_message := null;
+  begin
+    update public.companies set uses_financial_years = true where id = v_off;
+  exception when others then
+    v_message := sqlerrm;
+  end;
+
+  perform pg_temp.expect(
+    v_message is not null and position('numbered SAL/00001' in v_message) > 0,
+    'the refusal names SAL/00001, the first number the book issued'
+  );
+  perform pg_temp.expect(
+    v_message is not null and position('SAL/00002' in v_message) = 0,
+    'and does not name SAL/00002, which is merely the earliest-dated voucher'
+  );
+
+  -- A year-keeping book can hold the same shape — two series, each with its
+  -- own 00001 — so the ordering has to be total rather than merely correct on
+  -- the common case. sequence_number first, then the date, then the number.
+  v_on := public.create_company('ZZ Backdated Yearly Co', '2024-01-01', 4::smallint, 'INR');
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ BY Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_on and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_on, v_group, 'ZZ BY Sales') returning id into v_sales;
+  v_lines := jsonb_build_array(
+    jsonb_build_object('ledger_id', v_cash,  'debit_amount', 30, 'credit_amount', 0, 'line_order', 0),
+    jsonb_build_object('ledger_id', v_sales, 'debit_amount', 0, 'credit_amount', 30, 'line_order', 1));
+
+  perform public.create_voucher(v_on, 'sales', '2026-06-01', 'entered first', null, null, v_lines);
+  perform public.create_voucher(v_on, 'sales', '2025-01-01', 'entered second, dated earlier', null, null, v_lines);
+  set constraints all immediate;
+  set constraints all deferred;
+
+  perform pg_temp.expect(
+    (select count(distinct v.sequence_number) from public.vouchers v where v.company_id = v_on) = 1,
+    'both of the year-keeping book''s vouchers are number 1 of their own year'
+  );
+
+  v_message := null;
+  begin
+    update public.companies set uses_financial_years = false where id = v_on;
+  exception when others then
+    v_message := sqlerrm;
+  end;
+
+  perform pg_temp.expect(
+    v_message is not null and position('numbered SAL/2024-25/00001' in v_message) > 0,
+    'and with the sequence numbers tied, the earlier-dated of the two is named'
+  );
+
+  perform pg_temp.act_as(null);
+end;
+$$;
+
 \echo ''
 \echo 'ALL GUARANTEES HELD'
 
