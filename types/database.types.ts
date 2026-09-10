@@ -1168,6 +1168,13 @@ export type Database = {
           table_name: string
         }[]
       }
+      // Hand-added, not generated. This file comes from production, which does
+      // not yet have migration 0029; regenerating before it is applied would
+      // delete this entry. Kept in the generator's own alphabetical order.
+      merge_ledgers: {
+        Args: { p_company_id: string; p_source_ledger_id: string; p_target_ledger_id: string }
+        Returns: undefined
+      }
       restore_company_backup: {
         Args: { p_mode?: string; p_payload: Json; p_target_company_id?: string }
         Returns: string

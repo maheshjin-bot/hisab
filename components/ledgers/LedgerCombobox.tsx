@@ -16,7 +16,8 @@ export interface LedgerComboboxProps {
   value: string;
   displayName?: string;
   onSelect: (ledger: LedgerSearchResult) => void;
-  sideRule: VoucherSideRule;
+  /** Only the three fields this component actually reads — callers outside a voucher form (MergeLedgerDialog) have no `defaultRowCount`/`minRows` to supply. */
+  sideRule: Pick<VoucherSideRule, "label" | "allowedRoles" | "filterMode">;
   triggerRef?: (el: HTMLElement | null) => void;
   onKeyDown?: (e: React.KeyboardEvent) => void;
   autoFocus?: boolean;
@@ -25,6 +26,8 @@ export interface LedgerComboboxProps {
   allowCreate?: boolean;
   /** Replaces the trigger's own sizing — the phone forms use a taller control. */
   className?: string;
+  /** Left out of the results entirely — for pickers where one ledger must not be able to choose itself, e.g. a merge target excluding the ledger being merged away. */
+  excludeId?: string;
 }
 
 /**
@@ -50,6 +53,7 @@ export function LedgerCombobox({
   placeholder,
   allowCreate = true,
   className,
+  excludeId,
 }: LedgerComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -60,7 +64,8 @@ export function LedgerCombobox({
   const [picked, setPicked] = useState<LedgerSearchResult | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
-  const { data: results, isFetching } = useLedgerSearchQuery(companyId, query);
+  const { data: searchResults, isFetching } = useLedgerSearchQuery(companyId, query);
+  const results = excludeId ? searchResults?.filter((l) => l.id !== excludeId) : searchResults;
 
   const ranked = [...(results ?? [])].sort((a, b) => {
     if (sideRule.allowedRoles === "any") return 0;

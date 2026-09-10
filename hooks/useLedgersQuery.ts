@@ -8,7 +8,9 @@ import {
   createLedger,
   deleteAccountGroup,
   getAllLedgerGroups,
+  getLedgerBalances,
   getLedgerCountsByGroup,
+  mergeLedgers,
   searchLedgers,
   searchLedgersForCombobox,
   updateAccountGroup,
@@ -35,6 +37,24 @@ export function useLedgersQuery(companyId: string | undefined, params: SearchLed
     queryFn: () => searchLedgers(supabase, companyId as string, params),
     enabled: !!companyId,
     placeholderData: (prev) => prev, // avoid a flash of empty state while paginating/sorting
+  });
+}
+
+/**
+ * Life-to-date balance per ledger, for telling the user a ledger can't be
+ * deactivated *before* the 0017 trigger tells them the same thing as an error.
+ *
+ * Off by default: it aggregates every voucher entry in the company, which the
+ * deliberately server-paginated ledger list has no reason to pay for on each
+ * page view. Callers switch it on for the moment they need it.
+ */
+export function useLedgerBalancesQuery(companyId: string | undefined, enabled = true) {
+  const supabase = useSupabase();
+  return useQuery({
+    queryKey: queryKeys.ledgerBalances(companyId ?? ""),
+    queryFn: () => getLedgerBalances(supabase, companyId as string),
+    enabled: !!companyId && enabled,
+    staleTime: 30 * 1000, // posting a voucher moves these; the trigger stays the authority
   });
 }
 
@@ -70,6 +90,24 @@ export function useUpdateLedgerMutation(companyId: string) {
       queryClient.invalidateQueries({ queryKey: ["companies", companyId, "ledgers"] });
       queryClient.invalidateQueries({ queryKey: ["companies", companyId, "ledger-search"] });
     },
+  });
+}
+
+/**
+ * Merging touches whatever the two ledgers ever posted to — vouchers of any
+ * age, any report, the dashboard's cash-flow figure — not just the ledger
+ * list. Rather than name every affected key (and inevitably miss one the
+ * next report adds), this invalidates the whole cache, the same blunt
+ * approach UndoRecentChanges already uses for its own wide, rare, no-undo
+ * mutation.
+ */
+export function useMergeLedgerMutation(companyId: string) {
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sourceLedgerId, targetLedgerId }: { sourceLedgerId: string; targetLedgerId: string }) =>
+      mergeLedgers(supabase, companyId, sourceLedgerId, targetLedgerId),
+    onSuccess: () => queryClient.invalidateQueries(),
   });
 }
 

@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { MoreHorizontal, Pencil, Power, PowerOff } from "lucide-react";
+import { Merge, MoreHorizontal, Pencil, Power, PowerOff } from "lucide-react";
 import { createAppColumnHelper } from "@/components/data-table/table-features";
 import type { Ledger } from "@/lib/supabase/queries/ledgers";
+import { canMergeLedgerRole } from "@/lib/ledgers/merge-eligibility";
 import { formatWithDrCr } from "@/lib/utils/currency";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,12 +17,17 @@ const columnHelper = createAppColumnHelper<Ledger>();
 
 export function buildLedgerColumns({
   companyId,
+  isAdmin,
   onEdit,
   onToggleActive,
+  onMerge,
 }: {
   companyId: string;
+  /** Merging is admin-only (migration 0029) — hidden rather than shown-and-refused for anyone else. */
+  isAdmin: boolean;
   onEdit: (ledger: Ledger) => void;
   onToggleActive: (ledger: Ledger) => void;
+  onMerge: (ledger: Ledger) => void;
 }) {
   return columnHelper.columns([
     columnHelper.accessor("name", {
@@ -94,6 +100,12 @@ export function buildLedgerColumns({
                   {ledger.isActive ? <PowerOff className="size-3.5" /> : <Power className="size-3.5" />}
                   {ledger.isActive ? "Deactivate" : "Reactivate"}
                 </DropdownMenuItem>
+                {isAdmin && canMergeLedgerRole(ledger.ledgerRole) && (
+                  <DropdownMenuItem onClick={() => onMerge(ledger)}>
+                    <Merge className="size-3.5" />
+                    Merge into…
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

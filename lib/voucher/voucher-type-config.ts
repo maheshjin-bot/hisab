@@ -110,7 +110,7 @@ export const VOUCHER_TYPE_CONFIG: Record<VoucherType, VoucherTypeConfig> = {
 
 export const VOUCHER_TYPE_ORDER: VoucherType[] = ["payment", "receipt", "contra", "journal", "sales", "purchase"];
 
-export function isRoleAllowed(rule: VoucherSideRule, role: LedgerRole): boolean {
+export function isRoleAllowed(rule: Pick<VoucherSideRule, "allowedRoles">, role: LedgerRole): boolean {
   return rule.allowedRoles === "any" || rule.allowedRoles.includes(role);
 }
 

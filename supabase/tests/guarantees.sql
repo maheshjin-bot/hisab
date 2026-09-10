@@ -6101,6 +6101,199 @@ begin
 end;
 $$;
 
+-- --------------------------------------------- 49. merge_ledgers()
+
+\echo '49. Merging two ledgers moves everything and combines the balances'
+
+-- Two duplicate customers, one voucher posted straight to the duplicate and
+-- one sales invoice naming it as the party — merge_ledgers has to repoint
+-- both voucher_entries.ledger_id and vouchers.party_ledger_id, and to fold
+-- the two opening balances (one debit, one credit) into a single net figure
+-- on the survivor. A second pair of duplicate income ledgers, with an
+-- invoice line and a bank narration rule pointing at one of them, checks the
+-- two references migration 0028's counterparty column never had to touch:
+-- invoice_lines.revenue_ledger_id and bank_narration_rules.contra_ledger_id.
+do $$
+declare
+  v_admin uuid;
+  v_accountant uuid;
+  v_company uuid;
+  v_other_company uuid;
+  v_group uuid;
+  v_dup_customer uuid;
+  v_canonical_customer uuid;
+  v_cash uuid;
+  v_goods uuid;
+  v_sales_dup uuid;
+  v_sales_canonical uuid;
+  v_bank uuid;
+  v_other_ledger uuid;
+  v_receipt_voucher uuid;
+  v_invoice_voucher uuid;
+  v_invoice2_voucher uuid;
+  v_rule_id uuid;
+begin
+  v_admin := pg_temp.make_user('zz-merge-admin@hisab.invalid');
+  v_accountant := pg_temp.make_user('zz-merge-accountant@hisab.invalid');
+
+  perform pg_temp.act_as(v_admin);
+  v_company := public.create_company('ZZ Merge Co', '2025-04-01', 4::smallint, 'INR');
+  v_other_company := public.create_company('ZZ Merge Other Co', '2025-04-01', 4::smallint, 'INR');
+
+  insert into public.company_members (company_id, user_id, role, status, invited_by)
+  values (v_company, v_accountant, 'accountant', 'active', v_admin);
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Sundry Debtors';
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type, phone)
+    values (v_company, v_group, 'ZZ Merge Dup Customer', 500, 'debit', '9999999999') returning id into v_dup_customer;
+  insert into public.ledgers (company_id, group_id, name, opening_balance_amount, opening_balance_type, contact_person)
+    values (v_company, v_group, 'ZZ Merge Canonical Customer', 300, 'credit', 'Existing Contact') returning id into v_canonical_customer;
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ Merge Cash') returning id into v_cash;
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Direct Incomes';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ Merge Goods') returning id into v_goods;
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ Merge Sales Dup') returning id into v_sales_dup;
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ Merge Sales Canonical') returning id into v_sales_canonical;
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Bank Accounts';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ Merge Bank') returning id into v_bank;
+
+  select id into v_group from public.account_groups where company_id = v_other_company and name = 'Sundry Debtors';
+  insert into public.ledgers (company_id, group_id, name) values (v_other_company, v_group, 'ZZ Merge Other Ledger') returning id into v_other_ledger;
+
+  -- A plain receipt posted straight to the duplicate customer.
+  v_receipt_voucher := public.create_voucher(
+    v_company, 'receipt', '2026-04-05', 'from the duplicate customer', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_cash,         'debit_amount', 500, 'credit_amount', 0,   'line_order', 0),
+      jsonb_build_object('ledger_id', v_dup_customer, 'debit_amount', 0,   'credit_amount', 500, 'line_order', 1)
+    )
+  );
+
+  -- A sales invoice naming the duplicate as its party — exercises
+  -- vouchers.party_ledger_id, not just voucher_entries.
+  v_invoice_voucher := public.create_voucher(
+    v_company, 'sales', '2026-04-06', 'invoice to the duplicate customer', null, null, '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_dup_customer, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Widgets', 'quantity', 1,
+                         'rate', 1000, 'revenue_ledger_id', v_goods)))
+  );
+
+  -- A second invoice whose *revenue* line — not its party — is one of the
+  -- duplicate income ledgers.
+  v_invoice2_voucher := public.create_voucher(
+    v_company, 'sales', '2026-04-07', 'invoice booked to the duplicate income ledger', null, null, '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_canonical_customer, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Consulting', 'quantity', 1,
+                         'rate', 750, 'revenue_ledger_id', v_sales_dup)))
+  );
+
+  set constraints all immediate;
+  set constraints all deferred;
+
+  -- A learned narration rule whose contra side is the duplicate income
+  -- ledger — "this bank narration means ZZ Merge Sales Dup".
+  insert into public.bank_narration_rules (company_id, bank_ledger_id, pattern, direction, contra_ledger_id, is_manual)
+    values (v_company, v_bank, 'ZZMERGEPATTERN', 'deposit', v_sales_dup, true)
+    returning id into v_rule_id;
+
+  -- --------------------------------------------------- guard rails first
+
+  perform pg_temp.expect_error(
+    format('select public.merge_ledgers(%L, %L, %L)', v_company, v_dup_customer, v_dup_customer),
+    'cannot be merged into itself',
+    'a ledger cannot be merged into itself'
+  );
+
+  perform pg_temp.act_as(v_accountant);
+  perform pg_temp.expect_error(
+    format('select public.merge_ledgers(%L, %L, %L)', v_company, v_dup_customer, v_canonical_customer),
+    'Only an admin can merge ledgers',
+    'an accountant cannot merge ledgers, even ones they can otherwise edit'
+  );
+  perform pg_temp.act_as(v_admin);
+
+  perform pg_temp.expect_error(
+    format('select public.merge_ledgers(%L, %L, %L)', v_company, v_cash, v_canonical_customer),
+    'Cash and bank ledgers can''t be merged',
+    'a cash/bank ledger is refused as the source'
+  );
+  perform pg_temp.expect_error(
+    format('select public.merge_ledgers(%L, %L, %L)', v_company, v_dup_customer, v_bank),
+    'Cash and bank ledgers can''t be merged',
+    'a cash/bank ledger is refused as the target'
+  );
+
+  perform pg_temp.expect_error(
+    format('select public.merge_ledgers(%L, %L, %L)', v_company, v_other_ledger, v_canonical_customer),
+    'Both ledgers must belong to this company',
+    'a ledger from another company is refused, not merged across the boundary'
+  );
+
+  -- ------------------------------------------------- the merge itself
+
+  perform public.merge_ledgers(v_company, v_dup_customer, v_canonical_customer);
+
+  perform pg_temp.expect(
+    not exists (select 1 from public.ledgers where id = v_dup_customer),
+    'the duplicate customer is gone after the merge'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.voucher_entries where ledger_id = v_dup_customer) = 0
+    and (select count(*) from public.voucher_entries where ledger_id = v_canonical_customer and voucher_id = v_receipt_voucher) = 1,
+    'the receipt''s posting moved from the duplicate to the canonical customer'
+  );
+
+  perform pg_temp.expect(
+    (select party_ledger_id from public.vouchers where id = v_invoice_voucher) = v_canonical_customer,
+    'the invoice''s party moved from the duplicate to the canonical customer'
+  );
+
+  perform pg_temp.expect(
+    (select opening_balance_amount from public.ledgers where id = v_canonical_customer) = 200
+    and (select opening_balance_type from public.ledgers where id = v_canonical_customer) = 'debit',
+    -- 500 Dr (duplicate) net against 300 Cr (canonical) leaves 200 Dr, the
+    -- same net figure the two ledgers carried between them beforehand.
+    'the two opening balances net to a single combined figure on the survivor'
+  );
+
+  perform pg_temp.expect(
+    (select phone from public.ledgers where id = v_canonical_customer) = '9999999999'
+    and (select contact_person from public.ledgers where id = v_canonical_customer) = 'Existing Contact',
+    'the survivor keeps its own contact details and gains the duplicate''s blank ones, never the reverse'
+  );
+
+  -- --------------------------- the income-ledger pair: invoice_lines + bank_narration_rules
+
+  perform public.merge_ledgers(v_company, v_sales_dup, v_sales_canonical);
+
+  perform pg_temp.expect(
+    not exists (select 1 from public.ledgers where id = v_sales_dup),
+    'the duplicate income ledger is gone after the merge'
+  );
+
+  perform pg_temp.expect(
+    (select revenue_ledger_id from public.invoice_lines where voucher_id = v_invoice2_voucher) = v_sales_canonical,
+    'the invoice line''s revenue ledger moved to the canonical income ledger'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.voucher_entries where ledger_id = v_sales_canonical and voucher_id = v_invoice2_voucher) = 1,
+    'the posting generated from that invoice line moved with it'
+  );
+
+  perform pg_temp.expect(
+    (select contra_ledger_id from public.bank_narration_rules where id = v_rule_id) = v_sales_canonical,
+    'the narration rule''s contra ledger moved instead of the rule cascading away with the deleted ledger'
+  );
+
+  perform pg_temp.act_as(null);
+end;
+$$;
+
 \echo ''
 \echo 'ALL GUARANTEES HELD'
 
