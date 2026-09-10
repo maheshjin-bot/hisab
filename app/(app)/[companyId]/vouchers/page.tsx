@@ -2,8 +2,9 @@
 
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Upload } from "lucide-react";
+import { Plus, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, DEFAULT_PAGE_SIZE } from "@/components/data-table/DataTable";
 import { buildVoucherColumns } from "@/components/vouchers/voucher-columns";
@@ -35,6 +36,7 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
   const supabase = useSupabase();
   const queryClient = useQueryClient();
 
+  const [search, setSearch] = useState("");
   const [voucherType, setVoucherType] = useState<string>("all");
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: DEFAULT_PAGE_SIZE });
   const [sorting, setSorting] = useState<{ id: string; desc: boolean }[]>([]);
@@ -44,6 +46,7 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
   const deleteVoucher = useDeleteVoucherMutation(companyId);
 
   const { data, isLoading, isFetching } = useVouchersQuery(companyId, {
+    q: search || undefined,
     voucherType: voucherType === "all" ? undefined : (voucherType as VoucherType),
     page: pagination.pageIndex,
     pageSize: pagination.pageSize,
@@ -95,26 +98,40 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
         isLoading={isLoading || isFetching}
         emptyState="No vouchers yet."
         toolbar={
-          <Select
-            value={voucherType}
-            items={VOUCHER_TYPE_ITEMS}
-            onValueChange={(v) => {
-              setVoucherType(v ?? "all");
-              setPagination((p) => ({ ...p, pageIndex: 0 }));
-            }}
-          >
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="All types" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              {VOUCHER_TYPE_ORDER.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {VOUCHER_TYPE_CONFIG[type].label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2">
+            <div className="relative max-w-xs flex-1">
+              <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search vouchers…"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPagination((p) => ({ ...p, pageIndex: 0 }));
+                }}
+                className="pl-8"
+              />
+            </div>
+            <Select
+              value={voucherType}
+              items={VOUCHER_TYPE_ITEMS}
+              onValueChange={(v) => {
+                setVoucherType(v ?? "all");
+                setPagination((p) => ({ ...p, pageIndex: 0 }));
+              }}
+            >
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="All types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {VOUCHER_TYPE_ORDER.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {VOUCHER_TYPE_CONFIG[type].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         }
       />
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { use } from "react";
+import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
@@ -76,7 +77,11 @@ export default function TrialBalancePage({ params }: PageProps<"/[companyId]/rep
             <tbody>
               {rows.map((row) => (
                 <tr key={row.ledgerId} className="border-t hover:bg-muted/30">
-                  <td className="p-2.5 font-medium">{row.ledgerName}</td>
+                  <td className="p-2.5 font-medium">
+                    <Link href={`/${companyId}/reports/ledger-statement?ledgerId=${row.ledgerId}`} className="text-primary hover:underline">
+                      {row.ledgerName}
+                    </Link>
+                  </td>
                   <td className="p-2.5 text-muted-foreground">{row.groupName}</td>
                   <td className="p-2.5 text-right tabular-nums">{row.debitBalance ? formatCurrency(row.debitBalance) : ""}</td>
                   <td className="p-2.5 text-right tabular-nums">{row.creditBalance ? formatCurrency(row.creditBalance) : ""}</td>

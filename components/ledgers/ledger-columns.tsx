@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { MoreHorizontal, Pencil, Power, PowerOff } from "lucide-react";
 import { createAppColumnHelper } from "@/components/data-table/table-features";
 import type { Ledger } from "@/lib/supabase/queries/ledgers";
@@ -14,16 +15,25 @@ import {
 const columnHelper = createAppColumnHelper<Ledger>();
 
 export function buildLedgerColumns({
+  companyId,
   onEdit,
   onToggleActive,
 }: {
+  companyId: string;
   onEdit: (ledger: Ledger) => void;
   onToggleActive: (ledger: Ledger) => void;
 }) {
   return columnHelper.columns([
     columnHelper.accessor("name", {
       header: "Name",
-      cell: (info) => <span className="font-medium">{info.getValue()}</span>,
+      cell: (info) => (
+        <Link
+          href={`/${companyId}/reports/ledger-statement?ledgerId=${info.row.original.id}`}
+          className="font-medium text-primary hover:underline"
+        >
+          {info.getValue()}
+        </Link>
+      ),
     }),
     columnHelper.accessor("groupName", {
       header: "Group",

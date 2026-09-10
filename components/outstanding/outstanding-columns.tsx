@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createAppColumnHelper } from "@/components/data-table/table-features";
 import type { OutstandingRow } from "@/lib/supabase/queries/reports";
 import { formatCurrency } from "@/lib/utils/currency";
@@ -55,7 +56,7 @@ function oddSideNote(row: OutstandingRow): string | null {
  * here is unsortable — a header that looked clickable and re-sorted only the
  * rows already on screen would be a worse answer than none.
  */
-export function buildOutstandingColumns(today: Date) {
+export function buildOutstandingColumns(companyId: string, today: Date) {
   return columnHelper.columns([
     columnHelper.accessor("ledgerName", {
       header: "Party",
@@ -64,7 +65,12 @@ export function buildOutstandingColumns(today: Date) {
         const note = oddSideNote(info.row.original);
         return (
           <div>
-            <span className="font-medium">{info.getValue()}</span>
+            <Link
+              href={`/${companyId}/reports/ledger-statement?ledgerId=${info.row.original.ledgerId}`}
+              className="font-medium text-primary hover:underline"
+            >
+              {info.getValue()}
+            </Link>
             {note && <span className="block text-xs text-muted-foreground">{note}</span>}
           </div>
         );

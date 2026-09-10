@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, use } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,11 +11,12 @@ import { StatementFooter, StatementHeader } from "@/components/reports/Statement
 import { useBalanceSheetQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getBalanceSheet, type BalanceSheetRow } from "@/lib/supabase/queries/reports";
+import { balanceSheetCellLabel, balanceSheetCellLedgerId } from "@/lib/reports/balance-sheet-links";
 import { useReportAsOfDate } from "@/components/reports/ReportDateRangeFilter";
 import { formatCurrency } from "@/lib/utils/currency";
 import { asOfPeriod } from "@/lib/utils/statement-period";
 
-function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]; total: number }) {
+function Column({ companyId, title, rows, total }: { companyId: string; title: string; rows: BalanceSheetRow[]; total: number }) {
   const byGroup = new Map<string, BalanceSheetRow[]>();
   for (const row of rows) {
     const key = row.groupName;
@@ -42,23 +44,37 @@ function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]
                   </td>
                 </tr>
               )}
-              {groupRows.map((row) => (
-                <tr key={row.ledgerId ?? row.ledgerName} className="border-t">
-                  <td className={cn("p-2.5 text-muted-foreground", groupRows.length > 1 ? "pl-6" : "pl-3")}>
-                    {/*
-                      A group holding one line is collapsed onto its own name,
-                      so "Cash-in-Hand" is not shown above an indented "Till".
-                      The synthetic lines (ledgerId null — Net Profit/Loss, and
-                      the trading result brought forward that 0026 adds) are the
-                      exception: their name IS the label, and collapsing one of
-                      them puts "Capital Account" on the asset side of the sheet
-                      with no clue what it is.
-                    */}
-                    {groupRows.length === 1 && row.ledgerId !== null ? row.groupName : row.ledgerName}
-                  </td>
-                  <td className="p-2.5 pr-3 text-right tabular-nums">{formatCurrency(row.amount)}</td>
-                </tr>
-              ))}
+              {groupRows.map((row) => {
+                // A group holding one line is collapsed onto its own name, so
+                // "Cash-in-Hand" is not shown above an indented "Till". The
+                // synthetic lines (ledgerId null — Net Profit/Loss, and the
+                // trading result brought forward that 0026 adds) are the
+                // exception: their name IS the label, and collapsing one of
+                // them puts "Capital Account" on the asset side of the sheet
+                // with no clue what it is. See lib/reports/balance-sheet-links.ts.
+                //
+                // Only a cell that names a real ledger is a link: a synthetic
+                // row has nowhere to link to, and a collapsed group cell reads
+                // as the group's name, not the ledger underneath it — linking
+                // it would send "Cash-in-Hand" to a single ledger's statement
+                // while looking like it means the whole group.
+                const label = balanceSheetCellLabel(row, groupRows.length);
+                const linkLedgerId = balanceSheetCellLedgerId(row, groupRows.length);
+                return (
+                  <tr key={row.ledgerId ?? row.ledgerName} className="border-t">
+                    <td className={cn("p-2.5 text-muted-foreground", groupRows.length > 1 ? "pl-6" : "pl-3")}>
+                      {linkLedgerId ? (
+                        <Link href={`/${companyId}/reports/ledger-statement?ledgerId=${linkLedgerId}`} className="text-primary hover:underline">
+                          {label}
+                        </Link>
+                      ) : (
+                        label
+                      )}
+                    </td>
+                    <td className="p-2.5 pr-3 text-right tabular-nums">{formatCurrency(row.amount)}</td>
+                  </tr>
+                );
+              })}
             </Fragment>
           ))}
         </tbody>
@@ -118,8 +134,8 @@ export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/rep
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-2">
-            <Column title="Liabilities" rows={liabilities} total={totalLiabilities} />
-            <Column title="Assets" rows={assets} total={totalAssets} />
+            <Column companyId={companyId} title="Liabilities" rows={liabilities} total={totalLiabilities} />
+            <Column companyId={companyId} title="Assets" rows={assets} total={totalAssets} />
           </div>
           <p data-print-hide className={cn("text-center text-sm font-medium", tallies ? "text-success" : "text-destructive")}>
             {tallies

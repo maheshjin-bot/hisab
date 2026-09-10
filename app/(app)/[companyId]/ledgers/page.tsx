@@ -73,8 +73,8 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
   );
 
   const columns = useMemo(
-    () => buildLedgerColumns({ onEdit: setEditing, onToggleActive: setTogglingActive }),
-    []
+    () => buildLedgerColumns({ companyId, onEdit: setEditing, onToggleActive: setTogglingActive }),
+    [companyId]
   );
 
   return (

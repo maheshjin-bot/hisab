@@ -1,6 +1,7 @@
 "use client";
 
 import { use } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ReportDateRangeFilter, useReportDateRange } from "@/components/reports/ReportDateRangeFilter";
@@ -28,7 +29,19 @@ import { rangePeriod } from "@/lib/utils/statement-period";
  * of their own — the sign of "total direct expenses" is not good news or bad
  * news, and only the Gross and Net Profit panels below make that claim.
  */
-function Section({ title, rows, total, totalLabel }: { title: string; rows: ProfitAndLossRow[]; total: number; totalLabel: string }) {
+function Section({
+  companyId,
+  title,
+  rows,
+  total,
+  totalLabel,
+}: {
+  companyId: string;
+  title: string;
+  rows: ProfitAndLossRow[];
+  total: number;
+  totalLabel: string;
+}) {
   return (
     <div data-print-group className="overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
       <div className="border-b bg-muted/40 px-3 py-2 text-sm font-medium">{title}</div>
@@ -41,7 +54,11 @@ function Section({ title, rows, total, totalLabel }: { title: string; rows: Prof
           )}
           {rows.map((row) => (
             <tr key={row.ledgerId} className="border-t">
-              <td className="p-2.5 pl-3 text-muted-foreground">{row.ledgerName}</td>
+              <td className="p-2.5 pl-3 text-muted-foreground">
+                <Link href={`/${companyId}/reports/ledger-statement?ledgerId=${row.ledgerId}`} className="text-primary hover:underline">
+                  {row.ledgerName}
+                </Link>
+              </td>
               <td className={cn("p-2.5 pr-3 text-right tabular-nums", row.amount < 0 && "text-destructive")}>
                 {formatCurrency(row.amount)}
               </td>
@@ -126,8 +143,8 @@ export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/re
       ) : (
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
-            <Section title="Direct Income (Sales)" rows={directIncome} total={sum(directIncome)} totalLabel="Total" />
-            <Section title="Direct Expenses (incl. Purchases)" rows={directExpense} total={sum(directExpense)} totalLabel="Total" />
+            <Section companyId={companyId} title="Direct Income (Sales)" rows={directIncome} total={sum(directIncome)} totalLabel="Total" />
+            <Section companyId={companyId} title="Direct Expenses (incl. Purchases)" rows={directExpense} total={sum(directExpense)} totalLabel="Total" />
           </div>
 
           <div
@@ -143,8 +160,8 @@ export default function ProfitAndLossPage({ params }: PageProps<"/[companyId]/re
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <Section title="Indirect Income" rows={indirectIncome} total={sum(indirectIncome)} totalLabel="Total" />
-            <Section title="Indirect Expenses" rows={indirectExpense} total={sum(indirectExpense)} totalLabel="Total" />
+            <Section companyId={companyId} title="Indirect Income" rows={indirectIncome} total={sum(indirectIncome)} totalLabel="Total" />
+            <Section companyId={companyId} title="Indirect Expenses" rows={indirectExpense} total={sum(indirectExpense)} totalLabel="Total" />
           </div>
 
           <div

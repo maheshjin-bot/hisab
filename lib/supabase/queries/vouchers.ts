@@ -172,8 +172,56 @@ export interface ListVouchersParams {
   voucherType?: VoucherType;
   fromDate?: string;
   toDate?: string;
+  /** Matches narration or voucher number — see buildVoucherSearchFilter. */
+  q?: string;
   page: number;
   pageSize: number;
+}
+
+/**
+ * `,` is the clause separator in PostgREST's embedded-filter grammar —
+ * `.or()` sends its argument straight onto the URL with no escaping of its
+ * own (postgrest-js says so explicitly: "you need to make sure they are
+ * properly sanitized"). An ordinary accounting narration ("Rent for Jan,
+ * Feb, Mar", a pasted "1,00,000") contains exactly that character, so a raw
+ * comma splits one intended condition into pieces PostgREST can't parse and
+ * the request comes back 400.
+ *
+ * Verified against the live project rather than assumed: an unescaped comma
+ * in the search box fails the whole query (400); the percent-encoded form
+ * (`%2C`) succeeds (200). A period or parentheses in the same position —
+ * `Q1.2026`, `Rent (Jan)`, even an unbalanced single paren — do not break
+ * it, alone or together, so they are deliberately left unescaped rather
+ * than mangled on the strength of what "looks like" filter syntax.
+ *
+ * `%` and `_` are left alone too — they are ordinary `ilike` wildcards, and
+ * every other search box in this app (searchLedgers included) already
+ * leaves them live, so a user who types `%` gets the same wildcard
+ * behaviour here as everywhere else rather than a new, inconsistent rule.
+ */
+function escapeForOrFilter(value: string): string {
+  return value.replaceAll(",", "%2C");
+}
+
+/**
+ * The `.or()` filter string behind the Vouchers register's search box.
+ *
+ * Narration alone would mirror searchLedgers's single-column `ilike`, but a
+ * voucher search earns its keep far more by also matching voucher_number —
+ * the one other thing printed on every row of the register and the daybook,
+ * and the more specific of the two things someone is actually likely to type
+ * in ("INV-042" beats guessing which words appear in the narration). Party
+ * name is deliberately left out of this pass: vouchers carries no ledger name
+ * column, matching one would need a join this table doesn't have, and that is
+ * a bigger change than "add a search box" asked for.
+ *
+ * Pulled out as a pure string builder — rather than inlined into the query
+ * chain — so the filter it produces can be checked without a query builder in
+ * the loop.
+ */
+export function buildVoucherSearchFilter(q: string): string {
+  const escaped = escapeForOrFilter(q);
+  return `narration.ilike.%${escaped}%,voucher_number.ilike.%${escaped}%`;
 }
 
 export async function listVouchers(
@@ -190,6 +238,7 @@ export async function listVouchers(
   if (params.voucherType) query = query.eq("voucher_type", params.voucherType);
   if (params.fromDate) query = query.gte("voucher_date", params.fromDate);
   if (params.toDate) query = query.lte("voucher_date", params.toDate);
+  if (params.q) query = query.or(buildVoucherSearchFilter(params.q));
 
   query = query.order("voucher_date", { ascending: false }).order("sequence_number", { ascending: false });
 

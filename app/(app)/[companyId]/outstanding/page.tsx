@@ -86,7 +86,7 @@ export default function OutstandingPage({ params }: PageProps<"/[companyId]/outs
   // under a re-render. Nothing renders from it until the query resolves, so it
   // is never part of the hydrated markup.
   const [today] = useState(() => new Date());
-  const columns = useMemo(() => buildOutstandingColumns(today), [today]);
+  const columns = useMemo(() => buildOutstandingColumns(companyId, today), [companyId, today]);
 
   const rows = data ?? [];
   const receivables = rows.filter((r) => r.direction === "receivable");
