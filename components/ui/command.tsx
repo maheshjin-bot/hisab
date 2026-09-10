@@ -60,7 +60,13 @@ function CommandDialog({
         )}
         showCloseButton={showCloseButton}
       >
-        {children}
+        {/* CommandInput/CommandList/CommandGroup/etc. are all cmdk primitives
+            that read their state from cmdk's own Command root via context —
+            without it, useSyncExternalStore(context.subscribe, ...) throws
+            on `.subscribe` of undefined the instant the dialog's content
+            mounts. This wrapper is what supplies that root; dropping it
+            (as this file did until now) crashes on every palette open. */}
+        <Command>{children}</Command>
       </DialogContent>
     </Dialog>
   )
