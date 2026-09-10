@@ -5993,6 +5993,114 @@ begin
 end;
 $$;
 
+-- --------------- 48. get_ledger_statement's counterparty column
+
+\echo '48. The Ledger Statement names the other side of each voucher'
+
+-- The Narration column is free text someone typed by hand and doesn't
+-- reliably say which ledger the money went to or came from. counterparty is
+-- derived from the postings themselves: every *other* line of the same
+-- voucher, comma-joined (migration 0028).
+do $$
+declare
+  v_user uuid;
+  v_company uuid;
+  v_group uuid;
+  v_cash uuid;
+  v_supplier uuid;
+  v_expense uuid;
+  v_supplier_x uuid;
+  v_supplier_y uuid;
+  v_debtor uuid;
+  v_bank uuid;
+  v_payment_voucher uuid;
+  v_journal_voucher uuid;
+  v_unrelated_voucher uuid;
+begin
+  v_user := pg_temp.make_user('zz-ledger-statement-counterparty@hisab.invalid');
+  perform pg_temp.act_as(v_user);
+
+  v_company := public.create_company('ZZ Ledger Statement Co', '2025-04-01', 4::smallint, 'INR');
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ LS Cash') returning id into v_cash;
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Bank Accounts';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ LS Bank') returning id into v_bank;
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Sundry Creditors';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ LS Supplier') returning id into v_supplier;
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ LS Supplier X') returning id into v_supplier_x;
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ LS Supplier Y') returning id into v_supplier_y;
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Sundry Debtors';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ LS Debtor') returning id into v_debtor;
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Direct Expenses';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ LS Expense') returning id into v_expense;
+
+  -- An ordinary two-line payment: cash goes out, the supplier's balance
+  -- comes down. Querying the Cash ledger's statement, Supplier is the one
+  -- and only counterparty.
+  v_payment_voucher := public.create_voucher(
+    v_company, 'payment', '2026-04-05', 'paid supplier', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_supplier, 'debit_amount', 200, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_cash,     'debit_amount', 0, 'credit_amount', 200, 'line_order', 1)
+    )
+  );
+
+  -- A three-line journal splits one expense across two suppliers. Querying
+  -- the Expense ledger's statement, both suppliers are counterparties —
+  -- comma-joined, alphabetically, and with nothing to link a click to.
+  v_journal_voucher := public.create_voucher(
+    v_company, 'journal', '2026-04-08', 'expense split across two suppliers', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_expense,    'debit_amount', 1000, 'credit_amount', 0,   'line_order', 0),
+      jsonb_build_object('ledger_id', v_supplier_y, 'debit_amount', 0,    'credit_amount', 600, 'line_order', 1),
+      jsonb_build_object('ledger_id', v_supplier_x, 'debit_amount', 0,    'credit_amount', 400, 'line_order', 2)
+    )
+  );
+
+  -- A voucher that never touches Cash at all — a basic tenancy sanity check
+  -- that the WHERE clause on ve.ledger_id actually confines the statement to
+  -- the ledger asked for.
+  v_unrelated_voucher := public.create_voucher(
+    v_company, 'receipt', '2026-04-10', 'advance from a debtor, nothing to do with cash', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_bank,   'debit_amount', 500, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_debtor, 'debit_amount', 0, 'credit_amount', 500, 'line_order', 1)
+    )
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.get_ledger_statement(v_company, v_cash, '2026-04-01', '2026-04-30')
+      where voucher_id = v_payment_voucher
+        and counterparty = 'ZZ LS Supplier'
+        and counterparty_ledger_id = v_supplier) = 1,
+    'a two-line payment voucher shows exactly one counterparty, and it is correct'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.get_ledger_statement(v_company, v_expense, '2026-04-01', '2026-04-30')
+      where voucher_id = v_journal_voucher
+        and counterparty = 'ZZ LS Supplier X, ZZ LS Supplier Y'
+        and counterparty_ledger_id is null) = 1,
+    'a multi-line journal lists every other ledger, comma-joined, and stays unlinked'
+  );
+
+  perform pg_temp.expect(
+    (select counterparty from public.get_ledger_statement(v_company, v_cash, '2026-04-01', '2026-04-30')
+      where voucher_id is null and entry_date is null) is null,
+    'the synthetic Opening Balance row gains no counterparty'
+  );
+
+  perform pg_temp.expect(
+    (select count(*) from public.get_ledger_statement(v_company, v_cash, '2026-04-01', '2026-04-30')
+      where voucher_id = v_unrelated_voucher) = 0,
+    'a voucher that never touches this ledger never appears on its statement'
+  );
+
+  perform pg_temp.act_as(null);
+end;
+$$;
+
 \echo ''
 \echo 'ALL GUARANTEES HELD'
 

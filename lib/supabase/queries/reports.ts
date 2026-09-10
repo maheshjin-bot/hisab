@@ -45,6 +45,12 @@ export interface LedgerStatementRow {
   debitAmount: number | null;
   creditAmount: number | null;
   runningBalance: number;
+  /** Every *other* ledger on the voucher, comma-joined — null for the
+   * synthetic Opening Balance row. See lib/reports/ledger-statement-links.ts
+   * for when this is exactly one name versus several. */
+  counterparty: string | null;
+  /** Populated only when `counterparty` names exactly one ledger. */
+  counterpartyLedgerId: string | null;
 }
 
 /** First row is always a synthetic "Opening Balance" entry — see migration 0006. */
@@ -71,6 +77,8 @@ export async function getLedgerStatement(
     debitAmount: r.debit_amount,
     creditAmount: r.credit_amount,
     runningBalance: r.running_balance,
+    counterparty: r.counterparty,
+    counterpartyLedgerId: r.counterparty_ledger_id,
   }));
 }
 

@@ -1092,6 +1092,8 @@ export type Database = {
           p_to_date: string
         }
         Returns: {
+          counterparty: string
+          counterparty_ledger_id: string
           credit_amount: number
           debit_amount: number
           entry_date: string
@@ -1102,6 +1104,11 @@ export type Database = {
           voucher_type: string
         }[]
       }
+      // counterparty/counterparty_ledger_id above are hand-added, not
+      // generated, for the same reason as get_outstanding_balances below:
+      // this file comes from production, which does not yet have migration
+      // 0028. Kept in the generator's alphabetical order so a later
+      // regeneration produces no diff here.
       // Hand-added, not generated. This file comes from production, which does
       // not yet have migration 0025; regenerating before it is applied would
       // delete this entry. Kept in the generator's own alphabetical order and

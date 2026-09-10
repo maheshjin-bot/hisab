@@ -16,6 +16,7 @@ import { getLedgerStatement } from "@/lib/supabase/queries/reports";
 import { getLedgerById } from "@/lib/supabase/queries/ledgers";
 import { queryKeys } from "@/lib/query-keys";
 import { readLedgerIdParam, withLedgerIdParam } from "@/lib/reports/ledger-statement-url";
+import { ledgerStatementCounterpartyLinkId } from "@/lib/reports/ledger-statement-links";
 import { formatCurrency } from "@/lib/utils/currency";
 import { rangePeriod } from "@/lib/utils/statement-period";
 import type { LedgerSearchResult } from "@/lib/supabase/queries/ledgers";
@@ -95,6 +96,7 @@ export default function LedgerStatementPage({ params }: PageProps<"/[companyId]/
               { key: "voucherType", header: "Type" },
               { key: "voucherNumber", header: "Voucher No" },
               { key: "narration", header: "Narration" },
+              { key: "counterparty", header: "Particulars" },
               { key: "debitAmount", header: "Debit" },
               { key: "creditAmount", header: "Credit" },
               { key: "runningBalance", header: "Balance" },
@@ -126,6 +128,7 @@ export default function LedgerStatementPage({ params }: PageProps<"/[companyId]/
                 <th className="p-2.5 text-left font-medium">Date</th>
                 <th className="p-2.5 text-left font-medium">Voucher</th>
                 <th className="p-2.5 text-left font-medium">Narration</th>
+                <th className="p-2.5 text-left font-medium">Particulars</th>
                 <th className="p-2.5 text-right font-medium">Debit</th>
                 <th className="p-2.5 text-right font-medium">Credit</th>
                 <th className="p-2.5 text-right font-medium">Balance</th>
@@ -145,6 +148,18 @@ export default function LedgerStatementPage({ params }: PageProps<"/[companyId]/
                     )}
                   </td>
                   <td className="p-2.5 text-muted-foreground">{row.narration}</td>
+                  <td className="p-2.5 text-muted-foreground">
+                    {(() => {
+                      const linkId = ledgerStatementCounterpartyLinkId(row);
+                      return linkId ? (
+                        <Link href={`/${companyId}/reports/ledger-statement?ledgerId=${linkId}`} className="text-primary hover:underline">
+                          {row.counterparty}
+                        </Link>
+                      ) : (
+                        row.counterparty
+                      );
+                    })()}
+                  </td>
                   <td className="p-2.5 text-right tabular-nums">{row.debitAmount ? formatCurrency(row.debitAmount) : ""}</td>
                   <td className="p-2.5 text-right tabular-nums">{row.creditAmount ? formatCurrency(row.creditAmount) : ""}</td>
                   <td className="p-2.5 text-right tabular-nums font-medium">
