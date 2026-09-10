@@ -15,17 +15,11 @@ import { MergeLedgerDialog } from "@/components/ledgers/MergeLedgerDialog";
 import { CsvImportModal } from "@/components/csv/CsvImportModal";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import {
-  useLedgerBalancesQuery,
-  useLedgerGroupsQuery,
-  useLedgersQuery,
-  useUpdateLedgerMutation,
-} from "@/hooks/useLedgersQuery";
+import { useLedgerGroupsQuery, useLedgersQuery, useUpdateLedgerMutation } from "@/hooks/useLedgersQuery";
 import { useCompanyRole } from "@/hooks/useCompaniesQuery";
 import { useSupabase } from "@/hooks/useSupabase";
 import { buildLedgerCsvImportConfig } from "@/lib/ledgers/ledger-csv-config";
 import { searchLedgers, type Ledger } from "@/lib/supabase/queries/ledgers";
-import { formatWithDrCr } from "@/lib/utils/currency";
 import { itemsWithPending, selectItems } from "@/lib/utils/select-items";
 import { toUserMessage } from "@/lib/errors";
 
@@ -61,16 +55,6 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
     sortBy: sorting[0]?.id === "groupName" ? "group" : "name",
     sortDir: sorting[0]?.desc ? "desc" : "asc",
   });
-
-  // Only while a deactivation is actually being confirmed — the query sweeps
-  // every entry in the company, and the answer is wanted for one ledger.
-  const { data: balances } = useLedgerBalancesQuery(companyId, !!togglingActive?.isActive);
-
-  // undefined = not known yet (still loading, or the read failed), 0 = the
-  // ledger is at nil, anything else = the balance migration 0017's trigger
-  // will refuse to let go inactive. Leaving it undefined on failure means a
-  // bad read never blocks a deactivation the database would have allowed.
-  const heldBalance = togglingActive?.isActive ? balances?.get(togglingActive.id) : undefined;
 
   // The group filter's trigger reads its label from here rather than from the
   // option that was clicked, so this has to cover every value the filter can
@@ -200,29 +184,19 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
         onOpenChange={(open) => !open && setTogglingActive(null)}
         title={togglingActive?.isActive ? "Deactivate this ledger?" : "Reactivate this ledger?"}
         description={
-          !togglingActive?.isActive ? (
+          togglingActive?.isActive ? (
             <>
-              <b>{togglingActive?.name}</b> will be selectable on vouchers again.
-            </>
-          ) : heldBalance ? (
-            <>
-              <b>{togglingActive.name}</b> still holds {formatWithDrCr(heldBalance)}, so it can&apos;t be
-              deactivated yet. Clear it to nil first — transfer the balance, settle it, or write it off —
-              then come back here. Its entries and history stay exactly as they are meanwhile.
+              <b>{togglingActive.name}</b> will stop appearing when you pick a ledger on a voucher.
+              Its existing entries and history are untouched, and you can reactivate it at any time.
             </>
           ) : (
             <>
-              <b>{togglingActive.name}</b> will stop appearing when you pick a ledger on a voucher. Its
-              existing entries and history are untouched, and you can reactivate it at any time.{" "}
-              {heldBalance === 0
-                ? "Its balance is already nil, so there is nothing left to clear."
-                : "One condition: a ledger still holding a balance can’t be deactivated — clear it to nil first, by transferring, settling or writing it off."}
+              <b>{togglingActive?.name}</b> will be selectable on vouchers again.
             </>
           )
         }
         confirmLabel={togglingActive?.isActive ? "Deactivate" : "Reactivate"}
         destructive={togglingActive?.isActive}
-        confirmDisabled={!!heldBalance}
         onConfirm={async () => {
           if (!togglingActive) return;
           try {
