@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -27,7 +28,7 @@ import {
   FieldLegend,
 } from "@/components/ui/field";
 import { useLedgerGroupsQuery, useCreateLedgerMutation, useUpdateLedgerMutation } from "@/hooks/useLedgersQuery";
-import type { Ledger } from "@/lib/supabase/queries/ledgers";
+import type { Ledger, LedgerSearchResult } from "@/lib/supabase/queries/ledgers";
 import {
   PARTY_TYPES,
   defaultGroupForPartyType,
@@ -109,6 +110,9 @@ export function LedgerFormDialog({
   companyId,
   ledger,
   canEditFinancials = false,
+  initialName,
+  initialPartyType,
+  onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -118,7 +122,30 @@ export function LedgerFormDialog({
    *  group or opening-balance change from anyone else, so those fields are
    *  locked here rather than letting the save fail after the fact. */
   canEditFinancials?: boolean;
+  /**
+   * For creating a ledger from inside a voucher picker: the name the user
+   * had typed into the search, and the kind of ledger that field expects —
+   * so "Received Into (Cash / Bank)" opens already on "Bank account". Both
+   * are starting values only.
+   */
+  initialName?: string;
+  initialPartyType?: PartyType;
+  /** The new ledger, shaped as a picker result so the caller can select it. */
+  onCreated?: (ledger: LedgerSearchResult) => void;
 }) {
+  // A suggested kind has to be filed in a real group, and the group list is
+  // not there yet when this opens from a voucher picker (voucher forms never
+  // load it). So the form waits for the list and mounts with the group as a
+  // default value — rather than mounting empty and reaching back in with an
+  // effect. Only fetched while open; the dialog sits mounted, closed, inside
+  // every picker on a voucher form.
+  const wantsSuggestion = !!initialPartyType && !ledger;
+  const { data: groups } = useLedgerGroupsQuery(open && wantsSuggestion ? companyId : undefined);
+  const suggestedGroup = wantsSuggestion && groups ? defaultGroupForPartyType(groups, initialPartyType) : null;
+  const suggestedDirection = wantsSuggestion
+    ? (partyTypeConfig(initialPartyType).directions[0]?.value ?? partyTypeConfig(initialPartyType).defaultDirection)
+    : undefined;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -130,14 +157,22 @@ export function LedgerFormDialog({
             no effect reaching back to reset what the last opening left behind.
             The parent also keys this component per ledger, so switching
             straight from one Edit to another remounts it too. */}
-        {open && (
-          <LedgerForm
-            companyId={companyId}
-            ledger={ledger}
-            canEditFinancials={canEditFinancials}
-            onDone={() => onOpenChange(false)}
-          />
-        )}
+        {open &&
+          (wantsSuggestion && !groups ? (
+            <Skeleton className="h-72 w-full" />
+          ) : (
+            <LedgerForm
+              companyId={companyId}
+              ledger={ledger}
+              canEditFinancials={canEditFinancials}
+              initialName={initialName}
+              initialPartyType={wantsSuggestion ? initialPartyType : undefined}
+              initialGroupId={suggestedGroup?.id}
+              initialDirection={suggestedDirection}
+              onCreated={onCreated}
+              onDone={() => onOpenChange(false)}
+            />
+          ))}
       </DialogContent>
     </Dialog>
   );
@@ -147,11 +182,21 @@ function LedgerForm({
   companyId,
   ledger,
   canEditFinancials,
+  initialName,
+  initialPartyType,
+  initialGroupId,
+  initialDirection,
+  onCreated,
   onDone,
 }: {
   companyId: string;
   ledger?: Ledger;
   canEditFinancials: boolean;
+  initialName?: string;
+  initialPartyType?: PartyType;
+  initialGroupId?: string;
+  initialDirection?: "debit" | "credit";
+  onCreated?: (ledger: LedgerSearchResult) => void;
   onDone: () => void;
 }) {
   const { data: groups } = useLedgerGroupsQuery(companyId);
@@ -172,7 +217,7 @@ function LedgerForm({
   // map to ledger_role 'cash_bank', so a company with only a "Bank Accounts"
   // group files a Cash ledger there, and without this the picker would snap
   // back to "Bank account" the instant they chose "Cash".
-  const [chosenType, setChosenType] = useState<PartyType | null>(null);
+  const [chosenType, setChosenType] = useState<PartyType | null>(initialPartyType ?? null);
 
   const { control, handleSubmit, setValue, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -188,7 +233,12 @@ function LedgerForm({
           address: ledger.address ?? "",
           notes: ledger.notes ?? "",
         }
-      : EMPTY_VALUES,
+      : {
+          ...EMPTY_VALUES,
+          name: initialName ?? "",
+          groupId: initialGroupId ?? "",
+          openingBalanceType: initialDirection ?? EMPTY_VALUES.openingBalanceType,
+        },
   });
 
   const groupId = useWatch({ control, name: "groupId" });
@@ -243,7 +293,15 @@ function LedgerForm({
       if (isEdit) {
         await updateLedger.mutateAsync({ ledgerId: ledger.id, input: values });
       } else {
-        await createLedger.mutateAsync(values);
+        const id = await createLedger.mutateAsync(values);
+        const group = groups?.find((g) => g.id === values.groupId);
+        onCreated?.({
+          id,
+          name: values.name,
+          groupId: values.groupId,
+          groupName: group?.name ?? "",
+          ledgerRole: group?.ledgerRole ?? "other",
+        });
       }
       onDone();
     } catch (err) {
@@ -255,7 +313,17 @@ function LedgerForm({
   const filedIn = candidateGroups.find((g) => g.id === groupId) ?? null;
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="max-h-[70vh] overflow-y-auto pr-1">
+    <form
+      onSubmit={(e) => {
+        // This dialog is portalled, but React still bubbles the submit up the
+        // component tree — and when it's opened from a picker inside a
+        // voucher form, that form's own onSubmit is the next stop. Saving a
+        // ledger must not also try to save the voucher.
+        e.stopPropagation();
+        void handleSubmit(onSubmit)(e);
+      }}
+      className="max-h-[70vh] overflow-y-auto pr-1"
+    >
       <FieldGroup>
         <Field>
           <FieldLabel htmlFor="ledger-name">Name</FieldLabel>
