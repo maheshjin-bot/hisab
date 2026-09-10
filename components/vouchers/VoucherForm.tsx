@@ -18,10 +18,10 @@ import { VoucherTotalsBar } from "./VoucherTotalsBar";
 import { UnexpectedLedgerDialog } from "./UnexpectedLedgerDialog";
 import { roleMismatch, VOUCHER_TYPE_CONFIG, type LedgerRoleMismatch } from "@/lib/voucher/voucher-type-config";
 import { buildVoucherSchema, type VoucherFormValues, type VoucherLineFormValues } from "@/lib/voucher/voucher-schema";
+import { splitVoucherLines, gridAmountTotal, gridLineSide } from "@/lib/voucher/voucher-line-roles";
 import { useKeyboardGrid } from "@/lib/keyboard/useKeyboardGrid";
 import { useShortcutScopeStore } from "@/stores/useShortcutScopeStore";
 import { useCreateVoucherMutation, useUpdateVoucherMutation } from "@/hooks/useVouchersQuery";
-import { sumPaise, toPaise, fromPaise } from "@/lib/utils/currency";
 import type { LedgerSearchResult } from "@/lib/supabase/queries/ledgers";
 import type { VoucherType } from "@/lib/supabase/queries/vouchers";
 import type { VoucherWithLines } from "@/lib/supabase/queries/vouchers";
@@ -35,14 +35,23 @@ export function VoucherForm({
   voucherType,
   voucherId,
   initialValues,
+  returnTo,
 }: {
   companyId: string;
   voucherType: VoucherType;
   voucherId?: string;
   initialValues?: VoucherWithLines;
+  /**
+   * Where Cancel and a successful save go. Defaults to the vouchers
+   * register, which is where the desktop pages always sent people; the
+   * mobile section passes its own home so a phone user isn't dropped into
+   * a desktop-width table after saving.
+   */
+  returnTo?: string;
 }) {
   const router = useRouter();
   const config = VOUCHER_TYPE_CONFIG[voucherType];
+  const doneHref = returnTo ?? `/${companyId}/vouchers`;
   const schema = useMemo(() => buildVoucherSchema(config), [config]);
   const createVoucher = useCreateVoucherMutation(companyId);
   const updateVoucher = useUpdateVoucherMutation(companyId);
@@ -101,38 +110,49 @@ export function VoucherForm({
   // are still editable, and the reference on one of those is the same
   // supplier's bill number it always was.
   //
-  // The supplier is line 0's ledger, not vouchers.party_ledger_id: these
-  // vouchers have no party column value — the column arrived in 0022 and the
-  // rule that requires one applies only to vouchers with invoice lines, which
-  // these have none of. The fixed party row is where their supplier actually
-  // is, and it is what the lookup is given. Note the consequence, which is
-  // real and is documented in 0024: because those 57 store no party, they can
-  // never be *found* as the duplicate, only be the entry doing the finding.
+  // The supplier is whichever line splitVoucherLines identifies as the party
+  // (see partyIndex below), not vouchers.party_ledger_id: these vouchers have
+  // no party column value — the column arrived in 0022 and the rule that
+  // requires one applies only to vouchers with invoice lines, which these
+  // have none of. The fixed party row is where their supplier actually is,
+  // and it is what the lookup is given, regardless of which array index that
+  // row happens to be backed by. Note the consequence, which is real and is
+  // documented in 0024: because those 57 store no party, they can never be
+  // *found* as the duplicate, only be the entry doing the finding.
   const isPurchase = voucherType === "purchase";
   const [billCheckToken, setBillCheckToken] = useState(0);
   const watchedReference = useWatch({ control, name: "referenceNumber" });
   const watchedDate = useWatch({ control, name: "voucherDate" });
-  const partyLedgerId = isSingleParty ? watchedLines[0]?.ledgerId : undefined;
 
-  // Grid rows are every line except the fixed party line (index 0) in
-  // single-party mode; all lines in full-grid mode.
-  const gridStartIndex = isSingleParty ? 1 : 0;
-  const gridRowIds = fields.slice(gridStartIndex).map((f) => f.id);
+  // Which line is "the party" and which are "the grid" — identified by which
+  // line's actual posting matches the structural side the fixed field
+  // represents (see lib/voucher/voucher-line-roles.ts), never by array
+  // position. A hand-typed voucher always has the party at index 0, because
+  // the form itself writes it there on save — but a voucher that reached the
+  // database some other way (bulk CSV import is the confirmed case,
+  // PAY/02867) can have it anywhere. Full-grid types (contra, journal) have
+  // no primary party at all, so every line is "the grid" there.
+  const { partyIndex, gridIndices } = isSingleParty
+    ? splitVoucherLines(watchedLines, config)
+    : { partyIndex: null, gridIndices: fields.map((_, i) => i) };
+  const partyLedgerId = isSingleParty && partyIndex !== null ? watchedLines[partyIndex]?.ledgerId : undefined;
+  const gridRowIds = gridIndices.map((i) => fields[i]?.id).filter((id): id is string => !!id);
 
-  // The party line's amount isn't independently editable — it must always
-  // equal the sum of the grid lines' amounts on the opposite side, or the
-  // voucher can never balance. Kept in sync here rather than computed only
-  // at submit time, so the totals bar reflects it live too.
+  // The party line's amount isn't independently editable — there is no
+  // amount box for it (see VoucherPartyField) — it must always equal the sum
+  // of the grid lines' real amounts, on whichever field each one actually
+  // has populated, or the voucher can never balance. Kept in sync here
+  // rather than computed only at submit time, so the totals bar reflects it
+  // live too.
   useEffect(() => {
-    if (!isSingleParty) return;
-    const gridLines = watchedLines.slice(1);
-    const sumPaiseTotal = sumPaise(gridLines.map((l) => toPaise((gridSide === "debit" ? l?.debitAmount : l?.creditAmount) || 0)));
+    if (!isSingleParty || partyIndex === null) return;
+    const gridLines = gridIndices.map((i) => watchedLines[i]);
+    const next = gridAmountTotal(gridLines.map((l) => ({ debitAmount: l?.debitAmount || 0, creditAmount: l?.creditAmount || 0 })));
     const field = gridSide === "debit" ? "creditAmount" : "debitAmount";
-    const current = getValues(`lines.0.${field}`);
-    const next = fromPaise(sumPaiseTotal);
-    if (current !== next) setValue(`lines.0.${field}`, next, { shouldValidate: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-sync when the grid amounts actually change
-  }, [JSON.stringify(watchedLines.slice(1).map((l) => [l?.debitAmount, l?.creditAmount]))]);
+    const current = getValues(`lines.${partyIndex}.${field}`);
+    if (current !== next) setValue(`lines.${partyIndex}.${field}`, next, { shouldValidate: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-sync when which lines are "the grid", or their amounts, actually change
+  }, [partyIndex, JSON.stringify(gridIndices), JSON.stringify(watchedLines.map((l) => [l?.debitAmount, l?.creditAmount]))]);
 
   function isRowFilled(rowId: string) {
     const index = fields.findIndex((f) => f.id === rowId);
@@ -171,22 +191,29 @@ export function VoucherForm({
 
   /**
    * Every line's applicable side rule, derived exactly as the grid renders it —
-   * the party rule for the fixed row, the grid rule for the rest in
-   * single-party mode, and the row's own current side in full-grid mode.
+   * the party rule for whichever line splitVoucherLines identifies as the
+   * party, the grid rule for the rest in single-party mode, and the row's own
+   * current side in full-grid mode. Recomputed from `values` (the values at
+   * submit time) rather than reusing the render-time `partyIndex`/`gridIndices`
+   * above, so a mismatch check always matches what is actually being saved.
    */
-  function ruleForLine(values: VoucherFormValues, index: number) {
-    if (isSingleParty) return index === 0 ? partyRule : gridRule;
+  function ruleForLine(values: VoucherFormValues, index: number, submitPartyIndex: number | null) {
+    if (isSingleParty) return index === submitPartyIndex ? partyRule : gridRule;
     return (values.lines[index]?.creditAmount ?? 0) > 0 ? config.cr : config.dr;
   }
 
   function findRoleMismatches(values: VoucherFormValues): LedgerRoleMismatch[] {
+    const { partyIndex: submitPartyIndex, gridIndices: submitGridIndices } = isSingleParty
+      ? splitVoucherLines(values.lines, config)
+      : { partyIndex: null, gridIndices: values.lines.map((_, i) => i) };
     return values.lines
       .map((line, index) =>
         roleMismatch(
-          ruleForLine(values, index),
+          ruleForLine(values, index, submitPartyIndex),
           pickedLedgers[line.ledgerId],
-          // The fixed party box isn't a numbered row; the grid starts at 1.
-          isSingleParty ? (index === 0 ? undefined : index) : index + 1
+          // The fixed party box isn't a numbered row; every other line is
+          // numbered by its position in the grid, not its raw array index.
+          isSingleParty ? (index === submitPartyIndex ? undefined : submitGridIndices.indexOf(index) + 1) : index + 1
         )
       )
       .filter((m): m is LedgerRoleMismatch => m !== null);
@@ -214,7 +241,7 @@ export function VoucherForm({
         });
         toast.success(`${config.label} saved`);
       }
-      router.push(`/${companyId}/vouchers`);
+      router.push(doneHref);
     } catch (err) {
       toast.error(toUserMessage(err, "Could not save voucher"));
       throw err;
@@ -288,11 +315,12 @@ export function VoucherForm({
         <VoucherPartyField
           companyId={companyId}
           control={control}
+          index={partyIndex ?? 0}
           sideRule={partyRule}
-          triggerRef={registerCell(fields[0]?.id ?? "party", "party-ledger")}
+          triggerRef={registerCell(fields[partyIndex ?? 0]?.id ?? "party", "party-ledger")}
           onKeyDown={() => {}}
           autoFocus
-          initialLedgerName={initialValues?.lines[0]?.ledgerName}
+          initialLedgerName={initialValues?.lines[partyIndex ?? 0]?.ledgerName}
           onLedgerPicked={rememberLedger}
         />
       )}
@@ -305,8 +333,21 @@ export function VoucherForm({
           <span />
         </div>
         <div className="divide-y px-3">
-          {fields.slice(gridStartIndex).map((field, i) => {
-            const index = gridStartIndex + i;
+          {gridIndices.map((index, i) => {
+            const field = fields[index];
+            if (!field) return null;
+            // In single-party mode every grid row structurally sits on
+            // gridSide, but this reads the line's own populated field first —
+            // the same defensive read that identified the party line — so a
+            // line saved on the "other" field (PAY/02867-shaped data, or a
+            // malformed extra line) still shows its real amount instead of a
+            // blank box. An empty, still-being-typed row falls back to
+            // gridSide, same as before this fix.
+            const side = isSingleParty
+              ? gridLineSide(watchedLines[index], gridSide)
+              : watchedLines[index]?.creditAmount > 0
+                ? "credit"
+                : "debit";
             return (
               <VoucherLineRow
                 key={field.id}
@@ -315,9 +356,9 @@ export function VoucherForm({
                 index={index}
                 rowId={field.id}
                 sideRule={isSingleParty ? gridRule : watchedLines[index]?.creditAmount > 0 ? config.cr : config.dr}
-                side={isSingleParty ? gridSide : watchedLines[index]?.creditAmount > 0 ? "credit" : "debit"}
+                side={side}
                 onToggleSide={isSingleParty ? undefined : () => toggleRowSide(index)}
-                showRemove={fields.length - gridStartIndex > gridRule.minRows}
+                showRemove={gridIndices.length > gridRule.minRows}
                 onRemove={() => remove(index)}
                 initialLedgerName={initialValues?.lines[index]?.ledgerName}
                 registerCell={registerCell}
@@ -349,7 +390,7 @@ export function VoucherForm({
       </Field>
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={() => router.push(`/${companyId}/vouchers`)}>
+        <Button type="button" variant="outline" onClick={() => router.push(doneHref)}>
           Cancel
         </Button>
         <Button type="submit" disabled={isSubmitting}>

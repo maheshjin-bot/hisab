@@ -10,6 +10,7 @@ import type { LedgerSearchResult } from "@/lib/supabase/queries/ledgers";
 export function VoucherPartyField({
   companyId,
   control,
+  index,
   sideRule,
   triggerRef,
   onKeyDown,
@@ -19,6 +20,13 @@ export function VoucherPartyField({
 }: {
   companyId: string;
   control: Control<VoucherFormValues>;
+  /**
+   * Which line in the form's array is actually "the party" — identified by
+   * splitVoucherLines from the real posting, not assumed to be 0. A voucher
+   * saved by some route other than this form (bulk CSV import is the
+   * confirmed case) can have its party line at any index.
+   */
+  index: number;
   sideRule: VoucherSideRule;
   triggerRef: (el: HTMLElement | null) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
@@ -32,7 +40,7 @@ export function VoucherPartyField({
     <Field>
       <FieldLabel>{sideRule.label}</FieldLabel>
       <Controller
-        name="lines.0.ledgerId"
+        name={`lines.${index}.ledgerId`}
         control={control}
         render={({ field }) => (
           <LedgerCombobox
