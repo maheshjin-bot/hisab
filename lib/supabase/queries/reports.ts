@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database.types";
+import { fetchAllPages } from "@/lib/supabase/fetch-all-pages";
 
 export interface DaybookRow {
   voucherId: string;
@@ -18,13 +19,17 @@ export async function getDaybook(
   fromDate: string,
   toDate: string
 ): Promise<DaybookRow[]> {
-  const { data, error } = await supabase.rpc("get_daybook", {
-    p_company_id: companyId,
-    p_from_date: fromDate,
-    p_to_date: toDate,
-  });
-  if (error) throw error;
-  return (data ?? []).map((r) => ({
+  // Paged: a busy year's Daybook runs past the API's 1000-row cap.
+  const data = await fetchAllPages((from, to) =>
+    supabase
+      .rpc("get_daybook", {
+        p_company_id: companyId,
+        p_from_date: fromDate,
+        p_to_date: toDate,
+      })
+      .range(from, to)
+  );
+  return data.map((r) => ({
     voucherId: r.voucher_id,
     voucherDate: r.voucher_date,
     voucherType: r.voucher_type,
@@ -61,14 +66,20 @@ export async function getLedgerStatement(
   fromDate: string,
   toDate: string
 ): Promise<LedgerStatementRow[]> {
-  const { data, error } = await supabase.rpc("get_ledger_statement", {
-    p_company_id: companyId,
-    p_ledger_id: ledgerId,
-    p_from_date: fromDate,
-    p_to_date: toDate,
-  });
-  if (error) throw error;
-  return (data ?? []).map((r) => ({
+  // Paged: a cash ledger's "All time" runs to thousands of entries, past the
+  // API's 1000-row cap. Each page re-runs the function, which returns rows in
+  // its own fixed order, so the pages join up with running balances intact.
+  const data = await fetchAllPages((from, to) =>
+    supabase
+      .rpc("get_ledger_statement", {
+        p_company_id: companyId,
+        p_ledger_id: ledgerId,
+        p_from_date: fromDate,
+        p_to_date: toDate,
+      })
+      .range(from, to)
+  );
+  return data.map((r) => ({
     entryDate: r.entry_date,
     voucherId: r.voucher_id,
     voucherType: r.voucher_type,
