@@ -428,6 +428,78 @@ export type Database = {
           },
         ]
       }
+      // Hand-added, not generated. This file comes from production, which does
+      // not yet have migration 0030; regenerating before it is applied would
+      // delete this entry. Kept in the generator's own alphabetical order.
+      bill_capture_drafts: {
+        Row: {
+          company_id: string
+          confirmed_voucher_id: string | null
+          created_at: string
+          created_by: string | null
+          extracted_at: string | null
+          extracted_json: Json | null
+          id: string
+          note: string | null
+          rejected_at: string | null
+          rejected_by: string | null
+          rejected_reason: string | null
+          status: string
+          storage_path: string
+          updated_at: string
+          vendor_hint: string | null
+        }
+        Insert: {
+          company_id: string
+          confirmed_voucher_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          extracted_at?: string | null
+          extracted_json?: Json | null
+          id?: string
+          note?: string | null
+          rejected_at?: string | null
+          rejected_by?: string | null
+          rejected_reason?: string | null
+          status?: string
+          storage_path: string
+          updated_at?: string
+          vendor_hint?: string | null
+        }
+        Update: {
+          company_id?: string
+          confirmed_voucher_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          extracted_at?: string | null
+          extracted_json?: Json | null
+          id?: string
+          note?: string | null
+          rejected_at?: string | null
+          rejected_by?: string | null
+          rejected_reason?: string | null
+          status?: string
+          storage_path?: string
+          updated_at?: string
+          vendor_hint?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bill_capture_drafts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bill_capture_drafts_confirmed_voucher_id_company_id_fkey"
+            columns: ["confirmed_voucher_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "vouchers"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
       companies: {
         Row: {
           address: string | null

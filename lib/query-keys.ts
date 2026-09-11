@@ -22,4 +22,8 @@ export const queryKeys = {
   balanceSheet: (companyId: string, asOf: string) => ["companies", companyId, "reports", "balance-sheet", asOf] as const,
 
   cashFlowSummary: (companyId: string, asOf: string) => ["companies", companyId, "dashboard", "cash-flow", asOf] as const,
+
+  billCaptureDrafts: (companyId: string, status: string | undefined) =>
+    ["companies", companyId, "bill-captures", status ?? "all"] as const,
+  billCaptureDraft: (draftId: string) => ["bill-captures", draftId] as const,
 };

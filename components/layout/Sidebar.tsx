@@ -8,6 +8,7 @@ import {
   HandCoins,
   FolderTree,
   Receipt,
+  Camera,
   CalendarDays,
   BookOpenText,
   Scale,
@@ -40,6 +41,7 @@ function navItems(companyId: string): NavItem[] {
     { href: `/${companyId}/ledgers`, label: "Parties & Ledgers", icon: BookText },
     { href: `/${companyId}/groups`, label: "Account Groups", icon: FolderTree },
     { href: `/${companyId}/vouchers`, label: "Vouchers", icon: Receipt },
+    { href: `/${companyId}/bill-captures`, label: "Bill Capture", icon: Camera },
   ];
 }
 

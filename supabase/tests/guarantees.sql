@@ -6294,6 +6294,158 @@ begin
 end;
 $$;
 
+-- ------------------------------------------------ 50. bill_capture_drafts
+
+\echo '50. A bill capture draft can only be confirmed against a real purchase voucher'
+
+do $$
+declare
+  v_admin uuid;
+  v_outsider uuid;
+  v_company uuid;
+  v_other_company uuid;
+  v_group uuid;
+  v_supplier uuid;
+  v_goods uuid;
+  v_purchase_voucher uuid;
+  v_sales_voucher uuid;
+  v_other_company_voucher uuid;
+  v_draft uuid;
+  v_message text;
+begin
+  v_admin := pg_temp.make_user('zz-capture-admin@hisab.invalid');
+  v_outsider := pg_temp.make_user('zz-capture-outsider@hisab.invalid');
+
+  perform pg_temp.act_as(v_admin);
+  v_company := public.create_company('ZZ Capture Co', '2025-04-01', 4::smallint, 'INR');
+  v_other_company := public.create_company('ZZ Capture Other Co', '2025-04-01', 4::smallint, 'INR');
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Sundry Creditors';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ Capture Supplier') returning id into v_supplier;
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Direct Expenses';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ Capture Goods') returning id into v_goods;
+
+  v_purchase_voucher := public.create_voucher(
+    v_company, 'purchase', '2026-04-05', 'captured bill', null, null, '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_supplier, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Raw material', 'quantity', 1, 'rate', 5000, 'revenue_ledger_id', v_goods)))
+  );
+  v_sales_voucher := public.create_voucher(
+    v_company, 'sales', '2026-04-05', 'not a purchase', null, null, '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_supplier, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Wrong type', 'quantity', 1, 'rate', 5000, 'revenue_ledger_id', v_goods)))
+  );
+  set constraints all immediate;
+  set constraints all deferred;
+
+  select id into v_group from public.account_groups where company_id = v_other_company and name = 'Cash-in-Hand';
+  insert into public.ledgers (company_id, group_id, name) values (v_other_company, v_group, 'ZZ Capture Other Cash') returning id into v_goods;
+  select id into v_group from public.account_groups where company_id = v_other_company and name = 'Direct Expenses';
+  insert into public.ledgers (company_id, group_id, name) values (v_other_company, v_group, 'ZZ Capture Other Expense') returning id into v_supplier;
+
+  v_other_company_voucher := public.create_voucher(
+    v_other_company, 'purchase', '2026-04-05', 'a different company entirely', null, null,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', v_supplier, 'debit_amount', 1, 'credit_amount', 0, 'line_order', 0),
+      jsonb_build_object('ledger_id', v_goods,    'debit_amount', 0, 'credit_amount', 1, 'line_order', 1)
+    )
+  );
+  set constraints all immediate;
+  set constraints all deferred;
+
+  insert into public.bill_capture_drafts (company_id, storage_path, vendor_hint)
+    values (v_company, v_company || '/zz-capture-1.jpg', 'looked like the usual supplier')
+    returning id into v_draft;
+
+  perform pg_temp.expect(
+    (select status from public.bill_capture_drafts where id = v_draft) = 'pending_review',
+    'a freshly captured draft starts pending review'
+  );
+
+  perform pg_temp.expect(
+    (select created_by from public.bill_capture_drafts where id = v_draft) = v_admin,
+    'created_by is filled in from the session, not trusted from the client'
+  );
+
+  update public.bill_capture_drafts set status = 'confirmed' where id = v_draft;
+  perform pg_temp.expect(
+    (select status from public.bill_capture_drafts where id = v_draft) = 'pending_review',
+    'writing the literal word confirmed does nothing — status is computed, not accepted'
+  );
+
+  perform pg_temp.expect_error(
+    format('update public.bill_capture_drafts set confirmed_voucher_id = %L where id = %L', v_sales_voucher, v_draft),
+    'can only be confirmed against a purchase voucher',
+    'a sales voucher cannot confirm a purchase-bill capture'
+  );
+
+  perform pg_temp.expect_error(
+    format('update public.bill_capture_drafts set confirmed_voucher_id = %L where id = %L', v_other_company_voucher, v_draft),
+    'does not exist in this company',
+    'a voucher from a different company cannot confirm this draft'
+  );
+
+  update public.bill_capture_drafts set confirmed_voucher_id = v_purchase_voucher where id = v_draft;
+  perform pg_temp.expect(
+    (select status from public.bill_capture_drafts where id = v_draft) = 'confirmed',
+    'confirming against a real purchase voucher in the same company succeeds'
+  );
+
+  v_message := null;
+  begin
+    update public.bill_capture_drafts set note = 'trying to edit a confirmed draft' where id = v_draft;
+  exception when others then
+    v_message := sqlerrm;
+  end;
+  perform pg_temp.expect(
+    v_message is not null and position('already confirmed' in v_message) > 0,
+    'a confirmed draft is terminal — nothing about it can change further'
+  );
+
+  -- A second draft, to prove rejection needs a reason and is equally terminal.
+  insert into public.bill_capture_drafts (company_id, storage_path)
+    values (v_company, v_company || '/zz-capture-2.jpg')
+    returning id into v_draft;
+
+  perform pg_temp.expect_error(
+    format('update public.bill_capture_drafts set rejected_at = now(), rejected_by = %L where id = %L', v_admin, v_draft),
+    'A rejection needs a reason',
+    'rejecting without a reason is refused'
+  );
+
+  update public.bill_capture_drafts
+    set rejected_at = now(), rejected_by = v_admin, rejected_reason = 'blurry photo, please retake'
+    where id = v_draft;
+  perform pg_temp.expect(
+    (select status from public.bill_capture_drafts where id = v_draft) = 'rejected',
+    'rejecting with a reason succeeds'
+  );
+
+  -- RLS: someone outside the company cannot see or touch its captures at
+  -- all. `set local role authenticated` is what actually makes the policies
+  -- apply to this session — plain act_as() only sets the JWT claim
+  -- functions like is_company_member() read; the connection itself stays
+  -- the table-owning role otherwise, which bypasses RLS entirely.
+  grant select, insert on public.bill_capture_drafts to authenticated;
+
+  perform pg_temp.act_as(v_outsider);
+  set local role authenticated;
+
+  perform pg_temp.expect(
+    (select count(*) from public.bill_capture_drafts where company_id = v_company) = 0,
+    'a non-member sees no captures for a company they do not belong to'
+  );
+  perform pg_temp.expect_error(
+    format('insert into public.bill_capture_drafts (company_id, storage_path) values (%L, %L)', v_company, v_company || '/zz-capture-3.jpg'),
+    'row-level security',
+    'a non-member cannot create a capture for a company they do not belong to'
+  );
+
+  reset role;
+  perform pg_temp.act_as(null);
+end;
+$$;
+
 \echo ''
 \echo 'ALL GUARANTEES HELD'
 
