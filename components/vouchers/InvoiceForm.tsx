@@ -13,6 +13,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { SmartDateInput } from "@/components/common/SmartDateInput";
 import { LedgerCombobox } from "@/components/ledgers/LedgerCombobox";
 import { InvoiceLineRow, INVOICE_GRID_COLUMNS } from "./InvoiceLineRow";
+import { InvoiceLineCard } from "./InvoiceLineCard";
 import { InvoiceTotalsBar } from "./InvoiceTotalsBar";
 import { DuplicateBillWarning } from "./DuplicateBillWarning";
 import { UnexpectedLedgerDialog } from "./UnexpectedLedgerDialog";
@@ -53,11 +54,25 @@ export function InvoiceForm({
   voucherType,
   voucherId,
   initialValues,
+  layout = "grid",
+  returnTo,
 }: {
   companyId: string;
   voucherType: Extract<VoucherType, "sales" | "purchase">;
   voucherId?: string;
   initialValues?: VoucherWithLines;
+  /**
+   * How the lines are drawn. "grid" is the seven-column desktop table inside
+   * its own horizontal scroller; "cards" stacks each line for a phone. Same
+   * form state and validation underneath either way.
+   */
+  layout?: "grid" | "cards";
+  /**
+   * Where Cancel goes, and — when set — where a successful save goes instead
+   * of straight to the printed document. Unset (the desktop pages) keeps the
+   * original flow: cancel to the register, save to the invoice.
+   */
+  returnTo?: string;
 }) {
   const router = useRouter();
   const config = VOUCHER_TYPE_CONFIG[voucherType];
@@ -208,20 +223,26 @@ export function InvoiceForm({
     try {
       // Straight to the printed document, which shows the `line_amount` the
       // database settled rather than the preview this form was computing.
+      // Unless the caller gave a returnTo (the mobile section), in which
+      // case the document is one tap away on the toast instead.
+      let savedId: string;
       if (voucherId) {
         await updateVoucher.mutateAsync({ voucherId, input: { ...header, lines: [], invoice } });
-        toast.success(`${config.label} updated`);
-        router.push(`/${companyId}/vouchers/${voucherId}/invoice`);
+        savedId = voucherId;
       } else {
-        const newId = await createVoucher.mutateAsync({
-          companyId,
-          voucherType,
-          ...header,
-          lines: [],
-          invoice,
+        savedId = await createVoucher.mutateAsync({ companyId, voucherType, ...header, lines: [], invoice });
+      }
+      const invoiceHref = `/${companyId}/vouchers/${savedId}/invoice`;
+      const verb = voucherId ? "updated" : "saved";
+
+      if (returnTo) {
+        toast.success(`${config.label} ${verb}`, {
+          action: { label: "View invoice", onClick: () => router.push(invoiceHref) },
         });
-        toast.success(`${config.label} saved`);
-        router.push(`/${companyId}/vouchers/${newId}/invoice`);
+        router.push(returnTo);
+      } else {
+        toast.success(`${config.label} ${verb}`);
+        router.push(invoiceHref);
       }
     } catch (err) {
       toast.error(toUserMessage(err, "Could not save invoice"));
@@ -316,44 +337,66 @@ export function InvoiceForm({
       </Field>
 
       <div className="rounded-xl bg-card shadow-sm ring-1 ring-foreground/10">
-        {/* Seven columns don't fit a narrow window, and the page body must not
-            scroll sideways because of it — so the grid carries its own
-            horizontal scroller and the rest of the form stays put. */}
-        <div className="overflow-x-auto">
-          <div className="min-w-[56rem]">
-            <div
-              className={`grid ${INVOICE_GRID_COLUMNS} gap-2 border-b px-3 py-2 text-xs font-medium tracking-wide text-muted-foreground uppercase`}
-            >
-              <span>Description</span>
-              <span>{revenueRule.label}</span>
-              <span className="text-right">Qty</span>
-              <span className="text-center">Unit</span>
-              <span className="text-right">Rate</span>
-              <span className="text-right">Discount</span>
-              <span className="text-right">Amount</span>
-              <span />
-            </div>
-            <div className="divide-y px-3">
-              {fields.map((field, index) => (
-                <InvoiceLineRow
-                  key={field.id}
-                  companyId={companyId}
-                  control={control}
-                  index={index}
-                  rowId={field.id}
-                  revenueRule={revenueRule}
-                  amountPaise={totals.linePaise[index] ?? 0}
-                  showRemove={fields.length > 1}
-                  onRemove={() => remove(index)}
-                  initialLedgerName={knownLedgerNames.get(watchedLines[index]?.revenueLedgerId ?? "")}
-                  registerCell={registerCell}
-                  onCellKeyDown={handleCellKeyDown}
-                  onLedgerPicked={rememberLedger}
-                />
-              ))}
+        {layout === "cards" ? (
+          <div className="divide-y px-3">
+            {fields.map((field, index) => (
+              <InvoiceLineCard
+                key={field.id}
+                companyId={companyId}
+                control={control}
+                index={index}
+                rowId={field.id}
+                revenueRule={revenueRule}
+                amountPaise={totals.linePaise[index] ?? 0}
+                showRemove={fields.length > 1}
+                onRemove={() => remove(index)}
+                initialLedgerName={knownLedgerNames.get(watchedLines[index]?.revenueLedgerId ?? "")}
+                registerCell={registerCell}
+                onCellKeyDown={handleCellKeyDown}
+                onLedgerPicked={rememberLedger}
+              />
+            ))}
+          </div>
+        ) : (
+          /* Seven columns don't fit a narrow window, and the page body must not
+             scroll sideways because of it — so the grid carries its own
+             horizontal scroller and the rest of the form stays put. */
+          <div className="overflow-x-auto">
+            <div className="min-w-[56rem]">
+              <div
+                className={`grid ${INVOICE_GRID_COLUMNS} gap-2 border-b px-3 py-2 text-xs font-medium tracking-wide text-muted-foreground uppercase`}
+              >
+                <span>Description</span>
+                <span>{revenueRule.label}</span>
+                <span className="text-right">Qty</span>
+                <span className="text-center">Unit</span>
+                <span className="text-right">Rate</span>
+                <span className="text-right">Discount</span>
+                <span className="text-right">Amount</span>
+                <span />
+              </div>
+              <div className="divide-y px-3">
+                {fields.map((field, index) => (
+                  <InvoiceLineRow
+                    key={field.id}
+                    companyId={companyId}
+                    control={control}
+                    index={index}
+                    rowId={field.id}
+                    revenueRule={revenueRule}
+                    amountPaise={totals.linePaise[index] ?? 0}
+                    showRemove={fields.length > 1}
+                    onRemove={() => remove(index)}
+                    initialLedgerName={knownLedgerNames.get(watchedLines[index]?.revenueLedgerId ?? "")}
+                    registerCell={registerCell}
+                    onCellKeyDown={handleCellKeyDown}
+                    onLedgerPicked={rememberLedger}
+                  />
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        )}
         <button
           type="button"
           onClick={() => append(emptyLine())}
@@ -390,7 +433,7 @@ export function InvoiceForm({
       </Field>
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={() => router.push(`/${companyId}/vouchers`)}>
+        <Button type="button" variant="outline" onClick={() => router.push(returnTo ?? `/${companyId}/vouchers`)}>
           Cancel
         </Button>
         <Button type="submit" disabled={isSubmitting}>

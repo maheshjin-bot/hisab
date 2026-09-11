@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Inter, Source_Serif_4 } from "next/font/google";
 import { Providers } from "./providers";
+import { OfflineBanner } from "@/components/layout/OfflineBanner";
 import "./globals.css";
 
 /**
@@ -37,6 +38,12 @@ export const metadata: Metadata = {
   description: "Indian double-entry bookkeeping, built for speed.",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#4338ca",
+};
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
@@ -46,8 +53,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       // which is a hydration mismatch by construction.
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">
-        <Providers>{children}</Providers>
+      <body className="h-full flex flex-col">
+        <OfflineBanner />
+        {/* AppShell (and everything else this app renders) sizes itself with
+            h-full, which needs a definite height to resolve against. Without
+            this wrapper, showing the banner above it would leave AppShell
+            still claiming the full body height and overflowing by the
+            banner's height instead of yielding to it. */}
+        <div className="min-h-0 flex-1">
+          <Providers>{children}</Providers>
+        </div>
       </body>
     </html>
   );
