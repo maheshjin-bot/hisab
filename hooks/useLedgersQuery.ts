@@ -8,6 +8,7 @@ import {
   createLedger,
   deleteAccountGroup,
   getAllLedgerGroups,
+  getLedgerBalances,
   getLedgerCountsByGroup,
   mergeLedgers,
   searchLedgers,
@@ -36,6 +37,25 @@ export function useLedgersQuery(companyId: string | undefined, params: SearchLed
     queryFn: () => searchLedgers(supabase, companyId as string, params),
     enabled: !!companyId,
     placeholderData: (prev) => prev, // avoid a flash of empty state while paginating/sorting
+  });
+}
+
+/**
+ * Life-to-date balance per ledger, for the mobile ledger list's small
+ * balance figures and for telling the user a ledger can't be deactivated
+ * *before* the 0017 trigger tells them the same thing as an error.
+ *
+ * Off by default: it aggregates every voucher entry in the company, which
+ * the deliberately server-paginated ledger list has no reason to pay for on
+ * each page view. Callers switch it on for the moment they need it.
+ */
+export function useLedgerBalancesQuery(companyId: string | undefined, enabled = true) {
+  const supabase = useSupabase();
+  return useQuery({
+    queryKey: queryKeys.ledgerBalances(companyId ?? ""),
+    queryFn: () => getLedgerBalances(supabase, companyId as string),
+    enabled: !!companyId && enabled,
+    staleTime: 30 * 1000, // posting a voucher moves these; the trigger stays the authority
   });
 }
 

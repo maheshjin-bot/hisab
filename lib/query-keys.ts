@@ -8,6 +8,9 @@ export const queryKeys = {
   ledgerGroups: (companyId: string) => ["companies", companyId, "ledger-groups"] as const,
   ledgers: (companyId: string, params: unknown) => ["companies", companyId, "ledgers", params] as const,
   ledgerSearch: (companyId: string, q: string) => ["companies", companyId, "ledger-search", q] as const,
+  // Deliberately sits under the "ledgers" prefix so the invalidateQueries
+  // calls the ledger mutations already make clear these balances too.
+  ledgerBalances: (companyId: string) => ["companies", companyId, "ledgers", "balances"] as const,
   ledger: (ledgerId: string) => ["ledgers", ledgerId] as const,
 
   vouchers: (companyId: string, params: unknown) => ["companies", companyId, "vouchers", params] as const,

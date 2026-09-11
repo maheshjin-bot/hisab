@@ -251,6 +251,42 @@ export async function searchLedgers(
   return { rows: (data ?? []).map(mapLedger), total: count ?? 0 };
 }
 
+// The deactivation guard in migration 0017 measures a ledger's balance life to
+// date, with no date bound and no regard for the lock date. So the as-of date
+// used below has to be one no voucher can fall after — bounding it at today
+// would report nil for a ledger holding a forward-dated balance, and the
+// trigger would then refuse a deactivation the dialog had just promised.
+const LIFE_TO_DATE = "9999-12-31";
+
+/**
+ * Signed life-to-date balance for every ledger in the company, keyed by ledger
+ * id: positive is Dr, negative is Cr, as everywhere else.
+ *
+ * Read through get_trial_balance because that function already computes
+ * exactly the sum the 0017 trigger checks — opening balance plus every entry
+ * on a non-deleted voucher — and the ledgers table itself carries only the
+ * opening figure. It returns one row per ledger rather than per entry, so the
+ * whole company costs a single call.
+ *
+ * A ledger missing from the result means "unknown", not "nil". In practice an
+ * active ledger is always present (get_trial_balance keeps every active one,
+ * balance or not), and callers here only ask about active ledgers.
+ */
+export async function getLedgerBalances(
+  supabase: SupabaseClient<Database>,
+  companyId: string
+): Promise<Map<string, number>> {
+  const { data, error } = await supabase.rpc("get_trial_balance", {
+    p_company_id: companyId,
+    p_as_of_date: LIFE_TO_DATE,
+  });
+  if (error) throw error;
+
+  const balances = new Map<string, number>();
+  for (const row of data ?? []) balances.set(row.ledger_id, row.debit_balance - row.credit_balance);
+  return balances;
+}
+
 /** Async search for the voucher line grid's ledger combobox. */
 export async function searchLedgersForCombobox(
   supabase: SupabaseClient<Database>,
