@@ -429,8 +429,10 @@ export type Database = {
         ]
       }
       // Hand-added, not generated. This file comes from production, which does
-      // not yet have migration 0030; regenerating before it is applied would
-      // delete this entry. Kept in the generator's own alphabetical order.
+      // not yet have migration 0030/0031; regenerating before both are
+      // applied would delete this entry. Kept in the generator's own
+      // alphabetical order. storage_path moved out to bill_capture_pages
+      // (0031) — a draft holds any number of pages now, not one photo.
       bill_capture_drafts: {
         Row: {
           company_id: string
@@ -445,7 +447,6 @@ export type Database = {
           rejected_by: string | null
           rejected_reason: string | null
           status: string
-          storage_path: string
           updated_at: string
           vendor_hint: string | null
         }
@@ -462,7 +463,6 @@ export type Database = {
           rejected_by?: string | null
           rejected_reason?: string | null
           status?: string
-          storage_path: string
           updated_at?: string
           vendor_hint?: string | null
         }
@@ -479,7 +479,6 @@ export type Database = {
           rejected_by?: string | null
           rejected_reason?: string | null
           status?: string
-          storage_path?: string
           updated_at?: string
           vendor_hint?: string | null
         }
@@ -496,6 +495,42 @@ export type Database = {
             columns: ["confirmed_voucher_id", "company_id"]
             isOneToOne: false
             referencedRelation: "vouchers"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
+      // Hand-added, not generated — see the note above bill_capture_drafts.
+      bill_capture_pages: {
+        Row: {
+          company_id: string
+          created_at: string
+          draft_id: string
+          id: string
+          page_no: number
+          storage_path: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          draft_id: string
+          id?: string
+          page_no: number
+          storage_path: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          draft_id?: string
+          id?: string
+          page_no?: number
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bill_capture_pages_draft_id_company_id_fkey"
+            columns: ["draft_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "bill_capture_drafts"
             referencedColumns: ["id", "company_id"]
           },
         ]

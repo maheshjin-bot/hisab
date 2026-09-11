@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { Json } from "@/types/database.types";
 import { buildBillCapturePrompt } from "@/lib/bill-capture/prompt";
-import { extractBillCapture } from "@/lib/bill-capture/gemini";
+import { extractBillCapture, type BillCaptureImage } from "@/lib/bill-capture/gemini";
 import { normalizeBillCaptureExtraction } from "@/lib/bill-capture/normalize";
 
 /**
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   // separate membership check of its own.
   const { data: draft, error: draftError } = await supabase
     .from("bill_capture_drafts")
-    .select("id, company_id, storage_path, status")
+    .select("id, company_id, status, bill_capture_pages(page_no, storage_path)")
     .eq("id", draftId)
     .single();
 
@@ -55,21 +55,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `This capture is already ${draft.status} and can't be re-read` }, { status: 409 });
   }
 
-  const { data: company } = await supabase.from("companies").select("name").eq("id", draft.company_id).single();
-
-  const { data: fileBlob, error: downloadError } = await supabase.storage.from("bill-captures").download(draft.storage_path);
-  if (downloadError || !fileBlob) {
-    return NextResponse.json({ error: "Could not read the uploaded photo" }, { status: 500 });
+  const pages = [...(draft.bill_capture_pages ?? [])].sort((a, b) => a.page_no - b.page_no);
+  if (pages.length === 0) {
+    return NextResponse.json({ error: "This capture has no pages to read yet" }, { status: 409 });
   }
 
-  const imageBase64 = Buffer.from(await fileBlob.arrayBuffer()).toString("base64");
-  const mimeType = fileBlob.type || "image/jpeg";
+  const { data: company } = await supabase.from("companies").select("name").eq("id", draft.company_id).single();
+
+  const images: BillCaptureImage[] = [];
+  for (const page of pages) {
+    const { data: fileBlob, error: downloadError } = await supabase.storage.from("bill-captures").download(page.storage_path);
+    if (downloadError || !fileBlob) {
+      return NextResponse.json({ error: `Could not read page ${page.page_no} of the uploaded photos` }, { status: 500 });
+    }
+    images.push({ base64: Buffer.from(await fileBlob.arrayBuffer()).toString("base64"), mimeType: fileBlob.type || "image/jpeg" });
+  }
 
   const { raw, errorNote } = await extractBillCapture({
     apiKey: process.env.GEMINI_API_KEY,
     prompt: buildBillCapturePrompt(company?.name ?? null),
-    imageBase64,
-    mimeType,
+    images,
   });
 
   // extractBillCapture never throws, so there is always something to save —

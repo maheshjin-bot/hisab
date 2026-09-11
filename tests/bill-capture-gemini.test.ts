@@ -15,7 +15,7 @@ describe("extractBillCapture", () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
-    const result = await extractBillCapture({ apiKey: undefined, prompt: "p", imageBase64: "aaaa", mimeType: "image/jpeg" });
+    const result = await extractBillCapture({ apiKey: undefined, prompt: "p", images: [{ base64: "aaaa", mimeType: "image/jpeg" }] });
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(result.raw).toBeNull();
@@ -25,7 +25,7 @@ describe("extractBillCapture", () => {
   it("returns the model's parsed JSON on an ordinary success", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse('{"looks_like_purchase_bill":true}')));
 
-    const result = await extractBillCapture({ apiKey: "test-key", prompt: "p", imageBase64: "aaaa", mimeType: "image/jpeg" });
+    const result = await extractBillCapture({ apiKey: "test-key", prompt: "p", images: [{ base64: "aaaa", mimeType: "image/jpeg" }] });
 
     expect(result.errorNote).toBeNull();
     expect(result.raw).toEqual({ looks_like_purchase_bill: true });
@@ -40,7 +40,7 @@ describe("extractBillCapture", () => {
       .mockResolvedValueOnce(jsonResponse('{"note":"from the fallback model"}'));
     vi.stubGlobal("fetch", fetchSpy);
 
-    const result = await extractBillCapture({ apiKey: "test-key", prompt: "p", imageBase64: "aaaa", mimeType: "image/jpeg" });
+    const result = await extractBillCapture({ apiKey: "test-key", prompt: "p", images: [{ base64: "aaaa", mimeType: "image/jpeg" }] });
 
     // 3 calls to exhaust the primary model's own retries, 1 more to the fallback.
     expect(fetchSpy).toHaveBeenCalledTimes(4);
@@ -53,7 +53,7 @@ describe("extractBillCapture", () => {
     const fetchSpy = vi.fn().mockImplementation(async () => new Response("bad request", { status: 400 }));
     vi.stubGlobal("fetch", fetchSpy);
 
-    await extractBillCapture({ apiKey: "test-key", prompt: "p", imageBase64: "aaaa", mimeType: "image/jpeg" });
+    await extractBillCapture({ apiKey: "test-key", prompt: "p", images: [{ base64: "aaaa", mimeType: "image/jpeg" }] });
 
     // 1 call to the primary (no retry on 400), 1 to the fallback.
     expect(fetchSpy).toHaveBeenCalledTimes(2);
@@ -64,7 +64,7 @@ describe("extractBillCapture", () => {
     // this mock, and a Response body can only be consumed once.
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("quota exceeded for this project", { status: 403 })));
 
-    const result = await extractBillCapture({ apiKey: "test-key", prompt: "p", imageBase64: "aaaa", mimeType: "image/jpeg" });
+    const result = await extractBillCapture({ apiKey: "test-key", prompt: "p", images: [{ base64: "aaaa", mimeType: "image/jpeg" }] });
 
     expect(result.raw).toBeNull();
     expect(result.errorNote).toContain("403");
@@ -77,7 +77,7 @@ describe("extractBillCapture", () => {
       vi.fn().mockImplementation(async () => new Response(JSON.stringify({ candidates: [{ finishReason: "SAFETY" }] }), { status: 200 }))
     );
 
-    const result = await extractBillCapture({ apiKey: "test-key", prompt: "p", imageBase64: "aaaa", mimeType: "image/jpeg" });
+    const result = await extractBillCapture({ apiKey: "test-key", prompt: "p", images: [{ base64: "aaaa", mimeType: "image/jpeg" }] });
 
     expect(result.raw).toBeNull();
     expect(result.errorNote).toContain("SAFETY");
@@ -90,17 +90,38 @@ describe("extractBillCapture", () => {
       vi.fn().mockRejectedValue(new TypeError(`fetch failed: could not reach https://generativelanguage.googleapis.com/v1beta/models/x?key=${secretKey}`))
     );
 
-    const result = await extractBillCapture({ apiKey: secretKey, prompt: "p", imageBase64: "aaaa", mimeType: "image/jpeg" });
+    const result = await extractBillCapture({ apiKey: secretKey, prompt: "p", images: [{ base64: "aaaa", mimeType: "image/jpeg" }] });
 
     expect(result.errorNote).not.toContain(secretKey);
     expect(result.errorNote).toContain("[REDACTED]");
+  });
+
+  it("sends every page as its own image part in one request, in order, rather than one call per page", async () => {
+    const fetchSpy = vi.fn().mockImplementation(async () => jsonResponse('{"note":"two pages read together"}'));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await extractBillCapture({
+      apiKey: "test-key",
+      prompt: "p",
+      images: [
+        { base64: "page-one-bytes", mimeType: "image/jpeg" },
+        { base64: "page-two-bytes", mimeType: "image/png" },
+      ],
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const parts = body.contents[0].parts;
+    expect(parts).toHaveLength(3); // 1 text part + 2 image parts
+    expect(parts[1].inline_data).toEqual({ mime_type: "image/jpeg", data: "page-one-bytes" });
+    expect(parts[2].inline_data).toEqual({ mime_type: "image/png", data: "page-two-bytes" });
   });
 
   it("never throws even when fetch itself is fundamentally broken", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
 
     await expect(
-      extractBillCapture({ apiKey: "test-key", prompt: "p", imageBase64: "aaaa", mimeType: "image/jpeg" })
+      extractBillCapture({ apiKey: "test-key", prompt: "p", images: [{ base64: "aaaa", mimeType: "image/jpeg" }] })
     ).resolves.toMatchObject({ raw: null });
   });
 });

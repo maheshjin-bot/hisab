@@ -21,20 +21,20 @@ export function UploadBillDialog({
 }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [vendorHint, setVendorHint] = useState("");
   const upload = useUploadBillCaptureMutation(companyId);
 
   function reset() {
-    setFile(null);
+    setFiles([]);
     setVendorHint("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   async function handleUpload() {
-    if (!file) return;
+    if (files.length === 0) return;
     try {
-      const draftId = await upload.mutateAsync({ file, vendorHint: vendorHint || undefined });
+      const draftId = await upload.mutateAsync({ files, vendorHint: vendorHint || undefined });
       reset();
       onOpenChange(false);
       router.push(`/${companyId}/bill-captures/${draftId}`);
@@ -60,14 +60,19 @@ export function UploadBillDialog({
         </DialogHeader>
 
         <Field>
-          <FieldLabel htmlFor="bill-capture-file">Photo</FieldLabel>
+          <FieldLabel htmlFor="bill-capture-file">Photo{files.length > 1 ? "s" : ""}</FieldLabel>
           <Input
             id="bill-capture-file"
             ref={fileInputRef}
             type="file"
             accept="image/*,.pdf"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            multiple
+            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
           />
+          <p className="text-xs text-muted-foreground">
+            Select more than one file if this bill spans several pages — they&apos;ll be read as one document, in the
+            order you pick them.
+          </p>
         </Field>
         <Field>
           <FieldLabel htmlFor="bill-capture-hint">Supplier (optional)</FieldLabel>
@@ -83,7 +88,7 @@ export function UploadBillDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={upload.isPending}>
             Cancel
           </Button>
-          <Button onClick={handleUpload} disabled={!file || upload.isPending}>
+          <Button onClick={handleUpload} disabled={files.length === 0 || upload.isPending}>
             {upload.isPending ? "Uploading…" : "Upload"}
           </Button>
         </DialogFooter>

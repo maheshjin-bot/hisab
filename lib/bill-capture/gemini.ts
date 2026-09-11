@@ -39,18 +39,24 @@ async function readBodyText(res: Response): Promise<string> {
   }
 }
 
+export interface BillCaptureImage {
+  base64: string;
+  mimeType: string;
+}
+
 type ModelCallResult = { raw: unknown } | { error: string };
 
-async function callGeminiModel(
-  model: string,
-  apiKey: string,
-  prompt: string,
-  imageBase64: string,
-  mimeType: string
-): Promise<ModelCallResult> {
+async function callGeminiModel(model: string, apiKey: string, prompt: string, images: BillCaptureImage[]): Promise<ModelCallResult> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const body = JSON.stringify({
-    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: imageBase64 } }] }],
+    contents: [
+      {
+        // One text part, then every page as its own inline image part, in
+        // order — Gemini reads all parts of one content block as one turn,
+        // so a two-page bill is read as one document, not extracted twice.
+        parts: [{ text: prompt }, ...images.map((img) => ({ inline_data: { mime_type: img.mimeType, data: img.base64 } }))],
+      },
+    ],
     generationConfig: {
       temperature: 0.2,
       responseMimeType: "application/json",
@@ -119,20 +125,19 @@ async function callGeminiModel(
 export async function extractBillCapture(params: {
   apiKey: string | undefined;
   prompt: string;
-  imageBase64: string;
-  mimeType: string;
+  images: BillCaptureImage[];
 }): Promise<GeminiExtractionResult> {
   if (!params.apiKey) {
     return { raw: null, errorNote: "Vision capture isn't switched on yet. Fill in the details manually below." };
   }
 
   try {
-    const primary = await callGeminiModel(PRIMARY_MODEL, params.apiKey, params.prompt, params.imageBase64, params.mimeType);
+    const primary = await callGeminiModel(PRIMARY_MODEL, params.apiKey, params.prompt, params.images);
     if ("raw" in primary) return { raw: primary.raw, errorNote: null };
 
     // The fallback is a smaller model rescuing an outage, not a
     // cost-saving default — only reached once the primary is exhausted.
-    const fallback = await callGeminiModel(FALLBACK_MODEL, params.apiKey, params.prompt, params.imageBase64, params.mimeType);
+    const fallback = await callGeminiModel(FALLBACK_MODEL, params.apiKey, params.prompt, params.images);
     if ("raw" in fallback) return { raw: fallback.raw, errorNote: null };
 
     return { raw: null, errorNote: fallback.error };

@@ -6353,9 +6353,11 @@ begin
   set constraints all immediate;
   set constraints all deferred;
 
-  insert into public.bill_capture_drafts (company_id, storage_path, vendor_hint)
-    values (v_company, v_company || '/zz-capture-1.jpg', 'looked like the usual supplier')
+  insert into public.bill_capture_drafts (company_id, vendor_hint)
+    values (v_company, 'looked like the usual supplier')
     returning id into v_draft;
+  insert into public.bill_capture_pages (draft_id, company_id, page_no, storage_path)
+    values (v_draft, v_company, 1, v_company || '/' || v_draft || '/1.jpg');
 
   perform pg_temp.expect(
     (select status from public.bill_capture_drafts where id = v_draft) = 'pending_review',
@@ -6403,9 +6405,11 @@ begin
   );
 
   -- A second draft, to prove rejection needs a reason and is equally terminal.
-  insert into public.bill_capture_drafts (company_id, storage_path)
-    values (v_company, v_company || '/zz-capture-2.jpg')
+  insert into public.bill_capture_drafts (company_id)
+    values (v_company)
     returning id into v_draft;
+  insert into public.bill_capture_pages (draft_id, company_id, page_no, storage_path)
+    values (v_draft, v_company, 1, v_company || '/' || v_draft || '/1.jpg');
 
   perform pg_temp.expect_error(
     format('update public.bill_capture_drafts set rejected_at = now(), rejected_by = %L where id = %L', v_admin, v_draft),
@@ -6436,12 +6440,108 @@ begin
     'a non-member sees no captures for a company they do not belong to'
   );
   perform pg_temp.expect_error(
-    format('insert into public.bill_capture_drafts (company_id, storage_path) values (%L, %L)', v_company, v_company || '/zz-capture-3.jpg'),
+    format('insert into public.bill_capture_drafts (company_id) values (%L)', v_company),
     'row-level security',
     'a non-member cannot create a capture for a company they do not belong to'
   );
 
   reset role;
+  perform pg_temp.act_as(null);
+end;
+$$;
+
+-- ------------------------------------------------ 51. bill_capture_pages
+
+\echo '51. A bill capture can hold more than one page, only while pending review'
+
+do $$
+declare
+  v_admin uuid;
+  v_company uuid;
+  v_draft uuid;
+  v_supplier uuid;
+  v_goods uuid;
+  v_group uuid;
+  v_voucher uuid;
+  v_page1 uuid;
+  v_page2 uuid;
+begin
+  v_admin := pg_temp.make_user('zz-capture-pages-admin@hisab.invalid');
+  perform pg_temp.act_as(v_admin);
+  v_company := public.create_company('ZZ Capture Pages Co', '2025-04-01', 4::smallint, 'INR');
+
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Sundry Creditors';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ Pages Supplier') returning id into v_supplier;
+  select id into v_group from public.account_groups where company_id = v_company and name = 'Direct Expenses';
+  insert into public.ledgers (company_id, group_id, name) values (v_company, v_group, 'ZZ Pages Goods') returning id into v_goods;
+
+  insert into public.bill_capture_drafts (company_id) values (v_company) returning id into v_draft;
+
+  insert into public.bill_capture_pages (draft_id, company_id, page_no, storage_path)
+    values (v_draft, v_company, 1, v_company || '/' || v_draft || '/1.jpg')
+    returning id into v_page1;
+  insert into public.bill_capture_pages (draft_id, company_id, page_no, storage_path)
+    values (v_draft, v_company, 2, v_company || '/' || v_draft || '/2.jpg')
+    returning id into v_page2;
+
+  perform pg_temp.expect(
+    (select count(*) from public.bill_capture_pages where draft_id = v_draft) = 2,
+    'a draft can hold more than one page'
+  );
+
+  perform pg_temp.expect(
+    (select array_agg(page_no order by page_no) from public.bill_capture_pages where draft_id = v_draft) = array[1, 2]::smallint[],
+    'pages keep their own order'
+  );
+
+  perform pg_temp.expect_error(
+    format(
+      'insert into public.bill_capture_pages (draft_id, company_id, page_no, storage_path) values (%L, %L, 1, %L)',
+      v_draft, v_company, v_company || '/' || v_draft || '/1-again.jpg'
+    ),
+    'duplicate key',
+    'two pages cannot both claim the same page number on one draft'
+  );
+
+  v_voucher := public.create_voucher(
+    v_company, 'purchase', '2026-04-05', 'confirms the multi-page capture', null, null, '[]'::jsonb,
+    jsonb_build_object('party_ledger_id', v_supplier, 'lines', jsonb_build_array(
+      jsonb_build_object('line_order', 0, 'description', 'Goods', 'quantity', 1, 'rate', 1000, 'revenue_ledger_id', v_goods)))
+  );
+  set constraints all immediate;
+  set constraints all deferred;
+
+  update public.bill_capture_drafts set confirmed_voucher_id = v_voucher where id = v_draft;
+
+  -- Both remaining checks are genuine RLS (a policy re-checking the parent
+  -- draft's status, not a trigger), so — same as section 50 — this needs
+  -- `set local role authenticated` to actually apply; plain act_as() alone
+  -- leaves the session as the table-owning role, which bypasses RLS.
+  grant select, insert, delete on public.bill_capture_pages to authenticated;
+  set local role authenticated;
+
+  perform pg_temp.expect_error(
+    format(
+      'insert into public.bill_capture_pages (draft_id, company_id, page_no, storage_path) values (%L, %L, 3, %L)',
+      v_draft, v_company, v_company || '/' || v_draft || '/3.jpg'
+    ),
+    'row-level security',
+    'a page cannot be added to a draft that is already confirmed'
+  );
+
+  -- DELETE's policy carries a USING clause and no WITH CHECK — a visibility
+  -- filter, not a veto, so a blocked delete is silent: the statement simply
+  -- matches no rows. The guarantee is what's still there afterwards, not
+  -- what was raised (the same shape section 43's lock-date test uses).
+  delete from public.bill_capture_pages where id = v_page1;
+
+  reset role;
+
+  perform pg_temp.expect(
+    (select count(*) from public.bill_capture_pages where draft_id = v_draft) = 2,
+    'the confirmed draft''s pages survive both attempts untouched'
+  );
+
   perform pg_temp.act_as(null);
 end;
 $$;

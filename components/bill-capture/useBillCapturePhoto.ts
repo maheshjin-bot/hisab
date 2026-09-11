@@ -4,34 +4,39 @@ import { useEffect, useState } from "react";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getBillCapturePhotoUrl } from "@/lib/supabase/queries/bill-capture";
 
-/** A local object URL for the photographed bill, revoked automatically when the component unmounts or the path changes. */
-export function useBillCapturePhoto(storagePath: string) {
+/** Local object URLs for every photographed page, in the order given, revoked automatically when the component unmounts or the set of paths changes. */
+export function useBillCapturePhotos(storagePaths: string[]): string[] {
   const supabase = useSupabase();
-  const [url, setUrl] = useState<string | null>(null);
+  const [urls, setUrls] = useState<string[]>([]);
+  // Paths as one string is what actually needs to trigger a re-fetch — an
+  // array literal is a new reference every render even with the same
+  // contents, which would otherwise re-download every page on every render.
+  const key = storagePaths.join("|");
 
   useEffect(() => {
     let cancelled = false;
-    let objectUrl: string | null = null;
+    let objectUrls: string[] = [];
 
-    getBillCapturePhotoUrl(supabase, storagePath).then(
-      (u) => {
+    Promise.all(storagePaths.map((path) => getBillCapturePhotoUrl(supabase, path))).then(
+      (fetched) => {
         if (cancelled) {
-          URL.revokeObjectURL(u);
+          fetched.forEach((u) => URL.revokeObjectURL(u));
           return;
         }
-        objectUrl = u;
-        setUrl(u);
+        objectUrls = fetched;
+        setUrls(fetched);
       },
       () => {
-        if (!cancelled) setUrl(null);
+        if (!cancelled) setUrls([]);
       }
     );
 
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrls.forEach((u) => URL.revokeObjectURL(u));
     };
-  }, [supabase, storagePath]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` is storagePaths' own content identity
+  }, [supabase, key]);
 
-  return url;
+  return urls;
 }

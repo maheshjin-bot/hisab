@@ -49,6 +49,14 @@ const INSTRUCTIONS = `You are reading a photograph or scan of a purchase bill �
 bill of supply, or cash memo issued BY ANOTHER BUSINESS TO the capturing
 company. It is a bill they have to pay and book as a purchase.
 
+You may be given more than one image. When you are, they are pages of the
+SAME bill, in order — a header on page 1 continuing with more line items on
+page 2 is one document, not two. Read every image as a single bill and
+produce ONE result, not one per page. A total or a supplier block usually
+appears once (often the last page); use whichever page actually prints each
+field, and combine every page's line items into one list, in the order the
+pages were given.
+
 First judge whether this really is that kind of document
 (looks_like_purchase_bill). Say false for anything else — a quotation, a
 purchase order, a delivery challan, a bank advice, a handwritten note, a
