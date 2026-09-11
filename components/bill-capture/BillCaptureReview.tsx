@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Ban, Plus, Trash2 } from "lucide-react";
+import { Ban, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -24,7 +24,7 @@ import { toUserMessage } from "@/lib/errors";
  * from real values on first render instead of an effect catching up later.
  */
 export function BillCaptureReview({ companyId, draftId }: { companyId: string; draftId: string }) {
-  const { data: draft, isLoading } = useBillCaptureDraftQuery(draftId);
+  const { data: draft, isLoading, isError, error } = useBillCaptureDraftQuery(draftId);
   const extract = useExtractBillCaptureMutation(draftId);
   const addPage = useAddBillCapturePageMutation(companyId, draftId);
   const removePage = useRemoveBillCapturePageMutation(draftId);
@@ -32,8 +32,20 @@ export function BillCaptureReview({ companyId, draftId }: { companyId: string; d
   const [rejecting, setRejecting] = useState(false);
   const addPageInputRef = useRef<HTMLInputElement>(null);
 
-  if (isLoading || !draft) {
+  if (isLoading) {
     return <Skeleton className="h-96 w-full" />;
+  }
+
+  // Distinct from "still loading" — a failed query left draft undefined too,
+  // and showing a skeleton forever for that is just a quieter way of lying
+  // than a wrong empty state is.
+  if (isError || !draft) {
+    return (
+      <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+        <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+        <span>{toUserMessage(error, "Could not load this capture")}</span>
+      </div>
+    );
   }
 
   if (draft.status !== "pending_review") {
