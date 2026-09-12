@@ -4,6 +4,7 @@ import { use, useState } from "react";
 import { toast } from "sonner";
 import { UserPlus, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,13 +20,98 @@ import {
   usePendingInvitesQuery,
   useRevokeInviteMutation,
   useRevokeMemberMutation,
+  useUpdateCompanyDetailsMutation,
   useUpdateLockDateMutation,
   useUpdateMemberRoleMutation,
 } from "@/hooks/useCompaniesQuery";
-import type { CompanyRole } from "@/lib/supabase/queries/companies";
+import type { Company, CompanyRole } from "@/lib/supabase/queries/companies";
 import { toUserMessage } from "@/lib/errors";
 
+// Doubles as the `items` map of the two role Selects below: their values are
+// the database's role words, and a Select with no map shows the value itself.
 const ROLE_LABEL: Record<CompanyRole, string> = { admin: "Admin", accountant: "Accountant", auditor: "Auditor" };
+
+/**
+ * What goes at the top of a printed invoice.
+ *
+ * Kept out of the read-only Company block above because these three are the
+ * only company fields a user is meant to change, and because they are useless
+ * until someone does: a company created before invoicing existed prints an
+ * invoice with a name and nothing else. Remounted on company change (the key
+ * at the call site) so switching companies reseeds the inputs rather than
+ * carrying the previous one's address across.
+ */
+function LetterheadSection({
+  companyId,
+  company,
+  disabled,
+}: {
+  companyId: string;
+  company: Company;
+  disabled: boolean;
+}) {
+  const updateDetails = useUpdateCompanyDetailsMutation(companyId);
+  const [address, setAddress] = useState(company.address ?? "");
+  const [phone, setPhone] = useState(company.phone ?? "");
+  const [email, setEmail] = useState(company.email ?? "");
+
+  const dirty =
+    address !== (company.address ?? "") || phone !== (company.phone ?? "") || email !== (company.email ?? "");
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      await updateDetails.mutateAsync({ address, phone, email });
+      toast.success("Invoice header saved");
+    } catch (err) {
+      // companies_email_check is the realistic failure here — a typed address
+      // that isn't one.
+      toast.error(toUserMessage(err, "Could not save the invoice header"));
+    }
+  }
+
+  return (
+    <form onSubmit={handleSave} className="space-y-3 rounded-xl bg-card p-4 shadow-sm ring-1 ring-foreground/10">
+      <div>
+        <h2 className="text-sm font-medium">Invoice header</h2>
+        <p className="text-sm text-muted-foreground">
+          Printed at the top of every invoice and bill, under the company name.
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field className="sm:col-span-2">
+          <FieldLabel htmlFor="company-address">Address</FieldLabel>
+          <Textarea
+            id="company-address"
+            rows={3}
+            disabled={disabled}
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder={"12 Nehru Road\nKolkata 700001"}
+          />
+          <FieldDescription>Line breaks are kept as typed.</FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="company-phone">Phone</FieldLabel>
+          <Input id="company-phone" disabled={disabled} value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="company-email">Email</FieldLabel>
+          <Input id="company-email" type="email" disabled={disabled} value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
+      </div>
+
+      {!disabled && (
+        <div className="flex justify-end">
+          <Button type="submit" size="sm" disabled={!dirty || updateDetails.isPending}>
+            {updateDetails.isPending ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      )}
+    </form>
+  );
+}
 
 export default function SettingsPage({ params }: PageProps<"/[companyId]/settings">) {
   const { companyId } = use(params);
@@ -100,10 +186,24 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
               <p className="text-xs text-muted-foreground">Book beginning date</p>
               <p className="font-medium">{company?.bookBeginningDate}</p>
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Financial year starts</p>
+            {/* Both of these are stated, never offered. The database refuses
+                to change uses_financial_years once a voucher exists — a book
+                cannot hold two numbering schemes — so a disabled control the
+                user could reason about is worse than a sentence saying why.
+                book_beginning_date has always been shown the same way. */}
+            <div className="sm:col-span-2">
+              <p className="text-xs text-muted-foreground">Books</p>
               <p className="font-medium">
-                {company && new Date(2000, company.financialYearStartMonth - 1).toLocaleString("en-IN", { month: "long" })}
+                {company?.usesFinancialYears
+                  ? `Closed each financial year, starting in ${new Date(2000, company.financialYearStartMonth - 1).toLocaleString("en-IN", { month: "long" })}`
+                  : "One continuous set of books, never closed"}
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {company?.usesFinancialYears
+                  ? "Voucher numbering restarts each year — SAL/2025-26/00001."
+                  : "Voucher numbering runs on without restarting — SAL/00001, SAL/00002…"}{" "}
+                Fixed when the company was created: the numbers already issued cannot be rewritten, so this cannot
+                change once the books have started. To keep books the other way, create another company.
               </p>
             </div>
             <Field className="col-span-2">
@@ -124,6 +224,8 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
         )}
       </section>
 
+      {company && <LetterheadSection key={company.id} companyId={companyId} company={company} disabled={!isAdmin} />}
+
       <section className="space-y-3 rounded-xl bg-card p-4 shadow-sm ring-1 ring-foreground/10">
         <h2 className="text-sm font-medium">Members</h2>
         {loadingMembers ? (
@@ -135,7 +237,7 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
                 <span>{m.fullName ?? "Unnamed member"}</span>
                 <div className="flex items-center gap-2">
                   {isAdmin ? (
-                    <Select value={m.role} onValueChange={(v) => v && handleRoleChange(m.id, v as CompanyRole)}>
+                    <Select value={m.role} items={ROLE_LABEL} onValueChange={(v) => v && handleRoleChange(m.id, v as CompanyRole)}>
                       <SelectTrigger size="sm" className="w-32">
                         <SelectValue />
                       </SelectTrigger>
@@ -194,7 +296,7 @@ export default function SettingsPage({ params }: PageProps<"/[companyId]/setting
               <FieldLabel htmlFor="invite-email">Invite by email</FieldLabel>
               <Input id="invite-email" type="email" required value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
             </Field>
-            <Select value={inviteRole} onValueChange={(v) => v && setInviteRole(v as CompanyRole)}>
+            <Select value={inviteRole} items={ROLE_LABEL} onValueChange={(v) => v && setInviteRole(v as CompanyRole)}>
               <SelectTrigger className="w-36">
                 <SelectValue />
               </SelectTrigger>

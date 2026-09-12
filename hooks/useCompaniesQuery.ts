@@ -13,8 +13,10 @@ import {
   listPendingInvites,
   revokeInvite,
   revokeMember,
+  updateCompanyDetails,
   updateCompanyLockDate,
   updateMemberRole,
+  type CompanyDetailsInput,
   type CompanyRole,
   type CreateCompanyInput,
 } from "@/lib/supabase/queries/companies";
@@ -75,6 +77,19 @@ export function useUpdateLockDateMutation(companyId: string) {
     mutationFn: (lockDate: string | null) => updateCompanyLockDate(supabase, companyId, lockDate),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.company(companyId) });
+    },
+  });
+}
+
+export function useUpdateCompanyDetailsMutation(companyId: string) {
+  const supabase = useSupabase();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CompanyDetailsInput) => updateCompanyDetails(supabase, companyId, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.company(companyId) });
+      // The switcher and the companies list carry the same rows.
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies() });
     },
   });
 }

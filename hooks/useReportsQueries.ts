@@ -7,6 +7,7 @@ import {
   getBalanceSheet,
   getDaybook,
   getLedgerStatement,
+  getOutstanding,
   getProfitAndLoss,
   getTrialBalance,
 } from "@/lib/supabase/queries/reports";
@@ -58,5 +59,26 @@ export function useBalanceSheetQuery(companyId: string | undefined, asOfDate: st
     queryKey: queryKeys.balanceSheet(companyId ?? "", asOfDate),
     queryFn: () => getBalanceSheet(supabase, companyId as string, asOfDate),
     enabled: !!companyId && !!asOfDate,
+  });
+}
+
+/**
+ * Who owes me, and who I owe.
+ *
+ * The key is written out rather than added to lib/query-keys.ts, which an
+ * unrelated uncommitted workstream owns in this tree. It follows the same
+ * shape as the factory's other report keys — ["companies", id, "reports", …]
+ * — so the invalidations that already sweep that prefix reach it too. Fold it
+ * into the factory when the two branches meet.
+ *
+ * No date argument: the answer is life to date, which is the only version of
+ * this question anyone asks. See migration 0025.
+ */
+export function useOutstandingQuery(companyId: string | undefined) {
+  const supabase = useSupabase();
+  return useQuery({
+    queryKey: ["companies", companyId ?? "", "reports", "outstanding"],
+    queryFn: () => getOutstanding(supabase, companyId as string),
+    enabled: !!companyId,
   });
 }

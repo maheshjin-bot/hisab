@@ -6,6 +6,23 @@ import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { cn } from "@/lib/utils"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
 
+/**
+ * PASS `items` WHENEVER A VALUE ISN'T ITS OWN LABEL.
+ *
+ * `<SelectValue>` below shows the label of the selected item — but it does not
+ * get that label from the `<SelectItem>` the user picked. Base UI resolves it
+ * from the `items` map given here, and falls back to printing the *raw value*
+ * when there is no map or the value isn't in it. So a Select over ids shows an
+ * id, a Select over database words shows the database word, and a Select whose
+ * values happen to be their labels looks right by accident.
+ *
+ *     <Select value={groupId} items={{ all: "All groups", ...byId }}>
+ *
+ * `items` takes a `Record<value, label>` or an array of `{ value, label }` —
+ * so an options list already in that shape can be handed over as it stands.
+ * `lib/utils/select-items.ts` builds the map for the lists that come from a
+ * query, where the labels arrive after the trigger first paints.
+ */
 const Select = SelectPrimitive.Root
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
@@ -18,6 +35,12 @@ function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   )
 }
 
+/**
+ * The label of the selected item — resolved from `<Select items>`, not from
+ * the item that was clicked. See the note on `Select` above: without `items`
+ * this renders the raw value. `placeholder` only covers the case where nothing
+ * is selected at all, so it is no defence against that.
+ */
 function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
   return (
     <SelectPrimitive.Value

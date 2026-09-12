@@ -1,32 +1,39 @@
 "use client";
 
-import { use, useState } from "react";
-import { Input } from "@/components/ui/input";
+import { use } from "react";
+import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
+import { DateFieldSelects } from "@/components/reports/DateFieldSelects";
 import { PrintButton } from "@/components/reports/PrintButton";
 import { StatementFooter, StatementHeader } from "@/components/reports/StatementHeader";
 import { useTrialBalanceQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getTrialBalance } from "@/lib/supabase/queries/reports";
-import { formatCurrency } from "@/lib/utils/currency";
-import { isoLocalDate } from "@/lib/utils/financial-year";
+import { useReportAsOfDate } from "@/components/reports/ReportDateRangeFilter";
+import { formatCurrency, fromPaise, sumPaise, toPaise } from "@/lib/utils/currency";
 import { asOfPeriod } from "@/lib/utils/statement-period";
-
-function isoToday() {
-  return isoLocalDate(new Date());
-}
 
 export default function TrialBalancePage({ params }: PageProps<"/[companyId]/reports/trial-balance">) {
   const { companyId } = use(params);
   const supabase = useSupabase();
-  const [asOfDate, setAsOfDate] = useState(isoToday());
+  // Opens on the selected financial year's closing date — today only while
+  // that year is still running. The field below still takes any date.
+  const { asOfDate, setAsOfDate, financialYear } = useReportAsOfDate(companyId);
   const { data, isLoading } = useTrialBalanceQuery(companyId, asOfDate);
 
   const rows = (data ?? []).filter((r) => r.debitBalance !== 0 || r.creditBalance !== 0);
-  const totalDebit = rows.reduce((sum, r) => sum + r.debitBalance, 0);
-  const totalCredit = rows.reduce((sum, r) => sum + r.creditBalance, 0);
-  const tallies = Math.round(totalDebit * 100) === Math.round(totalCredit * 100);
+  // Added in integer paise, not rupee floats. This is the one report whose
+  // purpose is to show Dr = Cr, so it is the last place that may drift: the
+  // accumulator is where a float column loses its paise, and rounding at the
+  // end — as this did — cannot put them back, because the drift has already
+  // happened before the multiply.
+  const totalDebitPaise = sumPaise(rows.map((r) => toPaise(r.debitBalance)));
+  const totalCreditPaise = sumPaise(rows.map((r) => toPaise(r.creditBalance)));
+  const totalDebit = fromPaise(totalDebitPaise);
+  const totalCredit = fromPaise(totalCreditPaise);
+  const differencePaise = Math.abs(totalDebitPaise - totalCreditPaise);
+  const tallies = differencePaise === 0;
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-6">
@@ -51,7 +58,7 @@ export default function TrialBalancePage({ params }: PageProps<"/[companyId]/rep
 
       <div data-print-hide className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">As of</span>
-        <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
+        <DateFieldSelects value={asOfDate} onChange={setAsOfDate} yearsAround={financialYear.startYear} />
       </div>
 
       {isLoading ? (
@@ -70,7 +77,11 @@ export default function TrialBalancePage({ params }: PageProps<"/[companyId]/rep
             <tbody>
               {rows.map((row) => (
                 <tr key={row.ledgerId} className="border-t hover:bg-muted/30">
-                  <td className="p-2.5 font-medium">{row.ledgerName}</td>
+                  <td className="p-2.5 font-medium">
+                    <Link href={`/${companyId}/reports/ledger-statement?ledgerId=${row.ledgerId}`} className="text-primary hover:underline">
+                      {row.ledgerName}
+                    </Link>
+                  </td>
                   <td className="p-2.5 text-muted-foreground">{row.groupName}</td>
                   <td className="p-2.5 text-right tabular-nums">{row.debitBalance ? formatCurrency(row.debitBalance) : ""}</td>
                   <td className="p-2.5 text-right tabular-nums">{row.creditBalance ? formatCurrency(row.creditBalance) : ""}</td>
@@ -92,7 +103,7 @@ export default function TrialBalancePage({ params }: PageProps<"/[companyId]/rep
 
       {!isLoading && !tallies && (
         <p data-print-hide className="text-sm text-destructive">
-          Trial balance does not tally — debit and credit totals differ by {formatCurrency(Math.abs(totalDebit - totalCredit))}. This
+          Trial balance does not tally — debit and credit totals differ by {formatCurrency(fromPaise(differencePaise))}. This
           should not be possible; please report it.
         </p>
       )}
@@ -103,7 +114,7 @@ export default function TrialBalancePage({ params }: PageProps<"/[companyId]/rep
             ? undefined
             : tallies
               ? "Debits and credits tally."
-              : `Does not tally — difference of ${formatCurrency(Math.abs(totalDebit - totalCredit))}.`
+              : `Does not tally — difference of ${formatCurrency(fromPaise(differencePaise))}.`
         }
       />
     </div>

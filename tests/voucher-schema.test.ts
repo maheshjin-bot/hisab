@@ -67,4 +67,23 @@ describe.each(VOUCHER_TYPE_ORDER)("%s voucher", (type) => {
     const result = schema.safeParse(form([line("a", 500.01, 0), line("b", 0, 500)]));
     expect(result.success).toBe(false);
   });
+
+  it("ignores untouched blank rows a full-grid type's own defaultRowCount pre-fills the form with", () => {
+    // The exact bug reported live: Adjustment opens with 2+2 starter rows,
+    // a person fills exactly two of them and leaves the other two exactly
+    // as emptyLine() made them — no ledger, both amounts at their default.
+    // The whole voucher used to be refused for "Select a ledger" on rows
+    // nobody ever touched.
+    const blank = line("", 0, 0);
+    const result = schema.safeParse(form([line("a", 500, 0), line("b", 0, 500), blank, blank]));
+    expect(result.success).toBe(true);
+  });
+
+  it("still refuses a row that is only partly filled in, blank rows or not", () => {
+    // A ledger picked with no amount yet is a real, incomplete line — not
+    // the same shape isBlankVoucherLine() drops.
+    const startedButEmpty = line("c", 0, 0);
+    const result = schema.safeParse(form([line("a", 500, 0), line("b", 0, 500), startedButEmpty]));
+    expect(result.success).toBe(false);
+  });
 });

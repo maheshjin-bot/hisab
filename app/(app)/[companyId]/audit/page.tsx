@@ -12,12 +12,14 @@ import { UndoRecentChanges } from "@/components/audit/UndoRecentChanges";
 import { useAuditLogQuery } from "@/hooks/useAuditQuery";
 import { useCompanyRole } from "@/hooks/useCompaniesQuery";
 import { AUDITED_TABLES, type AuditAction, type AuditedTable } from "@/lib/supabase/queries/audit";
+import { selectItems } from "@/lib/utils/select-items";
 
 const PAGE_SIZE = 50;
 
 const TABLE_LABEL: Record<AuditedTable, string> = {
   vouchers: "Vouchers",
   voucher_entries: "Voucher lines",
+  invoice_lines: "Invoice lines",
   ledgers: "Ledgers",
   account_groups: "Account groups",
   company_members: "Members",
@@ -25,6 +27,12 @@ const TABLE_LABEL: Record<AuditedTable, string> = {
 };
 
 const ACTIONS: AuditAction[] = ["INSERT", "UPDATE", "DELETE"];
+
+// Both triggers read their label from these rather than from the option that
+// was clicked, so the sentinel belongs in them as much as the real values do —
+// without it an unfiltered page says "all" rather than "All records".
+const TABLE_ITEMS = selectItems(AUDITED_TABLES, (t) => [t, TABLE_LABEL[t]], { all: "All records" });
+const ACTION_ITEMS = selectItems(ACTIONS, (a) => [a, a], { all: "All actions" });
 
 export default function AuditPage({ params }: PageProps<"/[companyId]/audit">) {
   const { companyId } = use(params);
@@ -81,7 +89,7 @@ export default function AuditPage({ params }: PageProps<"/[companyId]/audit">) {
       {role === "admin" && <UndoRecentChanges companyId={companyId} />}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={tableName} onValueChange={(v) => { setTableName(v ?? "all"); setPage(0); }}>
+        <Select value={tableName} items={TABLE_ITEMS} onValueChange={(v) => { setTableName(v ?? "all"); setPage(0); }}>
           <SelectTrigger className="w-44">
             <SelectValue placeholder="All records" />
           </SelectTrigger>
@@ -93,7 +101,7 @@ export default function AuditPage({ params }: PageProps<"/[companyId]/audit">) {
           </SelectContent>
         </Select>
 
-        <Select value={action} onValueChange={(v) => { setAction(v ?? "all"); setPage(0); }}>
+        <Select value={action} items={ACTION_ITEMS} onValueChange={(v) => { setAction(v ?? "all"); setPage(0); }}>
           <SelectTrigger className="w-36">
             <SelectValue placeholder="All actions" />
           </SelectTrigger>

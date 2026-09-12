@@ -42,6 +42,29 @@ export interface FileLevelIssue {
   message: string;
 }
 
+/** Which component of `04/01/2026` is the day. See lib/csv/date-format.ts. */
+export type CsvDateFormat = "dd/mm/yyyy" | "mm/dd/yyyy";
+
+export interface CsvDateFormatHint {
+  /** The order the file should actually be read with. */
+  format: CsvDateFormat;
+  /** The file proved its own order, so the user has nothing to decide. */
+  locked: boolean;
+  /** Worked example from a real value in the file: "04/01/2026 will import as 4 January 2026". */
+  example: string | null;
+}
+
+/**
+ * Exposed by configs whose date column is order-ambiguous. The preview UI
+ * reads `inspect` to decide whether to offer the choice at all, and calls
+ * `withFormat` to re-validate the same file the other way round.
+ */
+export interface CsvDateFormatControl<TRow, TParsed, TContext> {
+  value: CsvDateFormat;
+  withFormat: (format: CsvDateFormat) => CsvImportConfig<TRow, TParsed, TContext>;
+  inspect: (rawRows: RawCsvRow[]) => CsvDateFormatHint;
+}
+
 export interface CsvImportPreview<TParsed> {
   totalRows: number;
   validRowCount: number;
@@ -70,10 +93,24 @@ export interface CsvImportConfig<TRow, TParsed, TContext = void> {
   rowSchema: z.ZodType<TParsed> | ((ctx: TContext) => z.ZodType<TParsed>);
   /** Rows sharing a groupKey are one logical unit (e.g. all lines of one voucher). Omit for 1 row = 1 record. */
   groupKey?: (row: TParsed) => string;
-  /** Stage 3: whole-file / cross-row rules (e.g. a voucher's debit total must equal its credit total). */
+  /** Set when this import reads dates that could be read two ways; drives the preview's format selector. */
+  dateFormat?: CsvDateFormatControl<TRow, TParsed, TContext>;
+  /**
+   * Stage 3: whole-file / cross-row rules (e.g. a voucher's debit total must
+   * equal its credit total).
+   *
+   * `rejectedRows` carries the rows stages 1-2 threw out. A rule that treats
+   * rows as a group needs them: judging a voucher only by the lines that
+   * survived means a group missing a line can look balanced and commit
+   * short, and a group that no longer balances gets blamed for an imbalance
+   * the user never wrote. They arrive un-parsed by definition, so only the
+   * raw cells and the reasons are available — enough to work out which group
+   * a row belonged to and to say why it failed.
+   */
   validateFile?: (
     validRows: Array<{ rowNumber: number; data: TParsed }>,
-    ctx: TContext
+    ctx: TContext,
+    rejectedRows: Array<{ rowNumber: number; raw: RawCsvRow; errors: RowError[] }>
   ) => FileLevelIssue[];
   /** Commits the fully-valid rows. Should be transactional per logical group where that matters (see voucher import). */
   onCommit: (

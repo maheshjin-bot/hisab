@@ -22,6 +22,14 @@ describe("reading a backup file", () => {
     expect(s.voucherEntries).toBe(2);
   });
 
+  it("counts invoice lines, and reads a file written before they existed as none", () => {
+    // Backups written before migration 0021 simply have no invoice_lines key.
+    // Reporting that as zero is right; failing to count them when they *are*
+    // there would make a complete backup look like it had lost data.
+    expect(summariseBackup(validBackup).invoiceLines).toBe(0);
+    expect(summariseBackup({ ...validBackup, invoice_lines: [{}, {}, {}] }).invoiceLines).toBe(3);
+  });
+
   it("refuses a file that isn't a HISAB backup", () => {
     // The realistic mistakes: some other app's export, or a stray JSON file.
     expect(() => summariseBackup({ format: "quickbooks.export" })).toThrow(/isn't a HISAB backup/);

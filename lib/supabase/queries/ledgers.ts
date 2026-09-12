@@ -22,6 +22,8 @@ export interface Ledger {
   name: string;
   groupId: string;
   groupName?: string;
+  /** From the joined group — 'other' if the group somehow isn't loaded, same fallback searchLedgersForCombobox uses. */
+  ledgerRole?: LedgerRole;
   openingBalanceAmount: number;
   openingBalanceType: "debit" | "credit";
   contactPerson: string | null;
@@ -54,7 +56,9 @@ function mapGroup(row: Database["public"]["Tables"]["account_groups"]["Row"]): A
 }
 
 function mapLedger(
-  row: Database["public"]["Tables"]["ledgers"]["Row"] & { account_groups?: { name: string } | null }
+  row: Database["public"]["Tables"]["ledgers"]["Row"] & {
+    account_groups?: { name: string; ledger_role?: string } | null;
+  }
 ): Ledger {
   return {
     id: row.id,
@@ -62,6 +66,7 @@ function mapLedger(
     name: row.name,
     groupId: row.group_id,
     groupName: row.account_groups?.name,
+    ledgerRole: (row.account_groups?.ledger_role as LedgerRole | undefined) ?? "other",
     openingBalanceAmount: row.opening_balance_amount,
     openingBalanceType: row.opening_balance_type as "debit" | "credit",
     contactPerson: row.contact_person,
@@ -213,7 +218,7 @@ export async function searchLedgers(
 ): Promise<{ rows: Ledger[]; total: number }> {
   let query = supabase
     .from("ledgers")
-    .select("*, account_groups(name)", { count: "exact" })
+    .select("*, account_groups(name, ledger_role)", { count: "exact" })
     .eq("company_id", companyId);
 
   if (params.q) query = query.ilike("name", `%${params.q}%`);
@@ -244,6 +249,42 @@ export async function searchLedgers(
   if (error) throw error;
 
   return { rows: (data ?? []).map(mapLedger), total: count ?? 0 };
+}
+
+// The deactivation guard in migration 0017 measures a ledger's balance life to
+// date, with no date bound and no regard for the lock date. So the as-of date
+// used below has to be one no voucher can fall after — bounding it at today
+// would report nil for a ledger holding a forward-dated balance, and the
+// trigger would then refuse a deactivation the dialog had just promised.
+const LIFE_TO_DATE = "9999-12-31";
+
+/**
+ * Signed life-to-date balance for every ledger in the company, keyed by ledger
+ * id: positive is Dr, negative is Cr, as everywhere else.
+ *
+ * Read through get_trial_balance because that function already computes
+ * exactly the sum the 0017 trigger checks — opening balance plus every entry
+ * on a non-deleted voucher — and the ledgers table itself carries only the
+ * opening figure. It returns one row per ledger rather than per entry, so the
+ * whole company costs a single call.
+ *
+ * A ledger missing from the result means "unknown", not "nil". In practice an
+ * active ledger is always present (get_trial_balance keeps every active one,
+ * balance or not), and callers here only ask about active ledgers.
+ */
+export async function getLedgerBalances(
+  supabase: SupabaseClient<Database>,
+  companyId: string
+): Promise<Map<string, number>> {
+  const { data, error } = await supabase.rpc("get_trial_balance", {
+    p_company_id: companyId,
+    p_as_of_date: LIFE_TO_DATE,
+  });
+  if (error) throw error;
+
+  const balances = new Map<string, number>();
+  for (const row of data ?? []) balances.set(row.ledger_id, row.debit_balance - row.credit_balance);
+  return balances;
 }
 
 /** Async search for the voucher line grid's ledger combobox. */
@@ -359,6 +400,27 @@ export async function updateLedger(
   if (input.isActive !== undefined) patch.is_active = input.isActive;
 
   const { error } = await supabase.from("ledgers").update(patch).eq("id", ledgerId);
+  if (error) throw error;
+}
+
+/**
+ * Collapses a duplicate ledger into another: every voucher line, invoice
+ * line and narration rule that named `sourceLedgerId` now names
+ * `targetLedgerId` instead, their opening balances are combined onto the
+ * target, and the source row is deleted. See migration 0029 for the full
+ * rules (admin-only, no cash/bank ledgers, no cross-company merge) and why.
+ */
+export async function mergeLedgers(
+  supabase: SupabaseClient<Database>,
+  companyId: string,
+  sourceLedgerId: string,
+  targetLedgerId: string
+): Promise<void> {
+  const { error } = await supabase.rpc("merge_ledgers", {
+    p_company_id: companyId,
+    p_source_ledger_id: sourceLedgerId,
+    p_target_ledger_id: targetLedgerId,
+  });
   if (error) throw error;
 }
 

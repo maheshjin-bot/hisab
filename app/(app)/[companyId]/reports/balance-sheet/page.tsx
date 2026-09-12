@@ -1,24 +1,22 @@
 "use client";
 
-import { Fragment, use, useState } from "react";
+import { Fragment, use } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
+import { DateFieldSelects } from "@/components/reports/DateFieldSelects";
 import { PrintButton } from "@/components/reports/PrintButton";
 import { StatementFooter, StatementHeader } from "@/components/reports/StatementHeader";
 import { useBalanceSheetQuery } from "@/hooks/useReportsQueries";
 import { useSupabase } from "@/hooks/useSupabase";
 import { getBalanceSheet, type BalanceSheetRow } from "@/lib/supabase/queries/reports";
+import { balanceSheetCellLabel, balanceSheetCellLedgerId } from "@/lib/reports/balance-sheet-links";
+import { useReportAsOfDate } from "@/components/reports/ReportDateRangeFilter";
 import { formatCurrency } from "@/lib/utils/currency";
-import { isoLocalDate } from "@/lib/utils/financial-year";
 import { asOfPeriod } from "@/lib/utils/statement-period";
 
-function isoToday() {
-  return isoLocalDate(new Date());
-}
-
-function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]; total: number }) {
+function Column({ companyId, title, rows, total }: { companyId: string; title: string; rows: BalanceSheetRow[]; total: number }) {
   const byGroup = new Map<string, BalanceSheetRow[]>();
   for (const row of rows) {
     const key = row.groupName;
@@ -46,14 +44,37 @@ function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]
                   </td>
                 </tr>
               )}
-              {groupRows.map((row) => (
-                <tr key={row.ledgerId ?? row.ledgerName} className="border-t">
-                  <td className={cn("p-2.5 text-muted-foreground", groupRows.length > 1 ? "pl-6" : "pl-3")}>
-                    {groupRows.length === 1 ? row.groupName : row.ledgerName}
-                  </td>
-                  <td className="p-2.5 pr-3 text-right tabular-nums">{formatCurrency(row.amount)}</td>
-                </tr>
-              ))}
+              {groupRows.map((row) => {
+                // A group holding one line is collapsed onto its own name, so
+                // "Cash-in-Hand" is not shown above an indented "Till". The
+                // synthetic lines (ledgerId null — Net Profit/Loss, and the
+                // trading result brought forward that 0026 adds) are the
+                // exception: their name IS the label, and collapsing one of
+                // them puts "Capital Account" on the asset side of the sheet
+                // with no clue what it is. See lib/reports/balance-sheet-links.ts.
+                //
+                // Only a cell that names a real ledger is a link: a synthetic
+                // row has nowhere to link to, and a collapsed group cell reads
+                // as the group's name, not the ledger underneath it — linking
+                // it would send "Cash-in-Hand" to a single ledger's statement
+                // while looking like it means the whole group.
+                const label = balanceSheetCellLabel(row, groupRows.length);
+                const linkLedgerId = balanceSheetCellLedgerId(row, groupRows.length);
+                return (
+                  <tr key={row.ledgerId ?? row.ledgerName} className="border-t">
+                    <td className={cn("p-2.5 text-muted-foreground", groupRows.length > 1 ? "pl-6" : "pl-3")}>
+                      {linkLedgerId ? (
+                        <Link href={`/${companyId}/reports/ledger-statement?ledgerId=${linkLedgerId}`} className="text-primary hover:underline">
+                          {label}
+                        </Link>
+                      ) : (
+                        label
+                      )}
+                    </td>
+                    <td className="p-2.5 pr-3 text-right tabular-nums">{formatCurrency(row.amount)}</td>
+                  </tr>
+                );
+              })}
             </Fragment>
           ))}
         </tbody>
@@ -71,7 +92,9 @@ function Column({ title, rows, total }: { title: string; rows: BalanceSheetRow[]
 export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/reports/balance-sheet">) {
   const { companyId } = use(params);
   const supabase = useSupabase();
-  const [asOfDate, setAsOfDate] = useState(isoToday());
+  // Opens on the selected financial year's closing date — today only while
+  // that year is still running. The field below still takes any date.
+  const { asOfDate, setAsOfDate, financialYear } = useReportAsOfDate(companyId);
   const { data, isLoading } = useBalanceSheetQuery(companyId, asOfDate);
 
   const liabilities = (data ?? []).filter((r) => r.side === "liability");
@@ -103,7 +126,7 @@ export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/rep
 
       <div data-print-hide className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">As of</span>
-        <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
+        <DateFieldSelects value={asOfDate} onChange={setAsOfDate} yearsAround={financialYear.startYear} />
       </div>
 
       {isLoading ? (
@@ -111,8 +134,8 @@ export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/rep
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-2">
-            <Column title="Liabilities" rows={liabilities} total={totalLiabilities} />
-            <Column title="Assets" rows={assets} total={totalAssets} />
+            <Column companyId={companyId} title="Liabilities" rows={liabilities} total={totalLiabilities} />
+            <Column companyId={companyId} title="Assets" rows={assets} total={totalAssets} />
           </div>
           <p data-print-hide className={cn("text-center text-sm font-medium", tallies ? "text-success" : "text-destructive")}>
             {tallies

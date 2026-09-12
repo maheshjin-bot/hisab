@@ -6,7 +6,7 @@
  * handed to `new Date(iso)` in local time, which shifts the date backwards a
  * day for anyone west of Greenwich.
  */
-function formatIsoDate(iso: string): string {
+export function formatIsoDate(iso: string): string {
   const [year, month, day] = iso.split("-").map(Number);
   if (!year || !month || !day) return iso;
   return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-IN", {

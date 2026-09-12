@@ -13,6 +13,7 @@ const ACTION_STYLE = {
 const TABLE_LABEL: Record<string, string> = {
   vouchers: "Voucher",
   voucher_entries: "Voucher line",
+  invoice_lines: "Invoice line",
   ledgers: "Ledger",
   account_groups: "Account group",
   company_members: "Member",
@@ -26,7 +27,8 @@ const TABLE_LABEL: Record<string, string> = {
  */
 function describeRecord(entry: AuditEntry): string {
   const row = entry.newData ?? entry.oldData ?? {};
-  const candidates = ["voucher_number", "name", "narration"];
+  // `description` is what an invoice line calls its name.
+  const candidates = ["voucher_number", "name", "description", "narration"];
   for (const key of candidates) {
     const value = row[key];
     if (typeof value === "string" && value.trim()) return value;

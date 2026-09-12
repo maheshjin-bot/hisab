@@ -9,8 +9,16 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { useCompaniesQuery } from "@/hooks/useCompaniesQuery";
 import { useCompanyStore } from "@/stores/useCompanyStore";
 import { cn } from "@/lib/utils";
-import { getFinancialYearLabel } from "@/lib/utils/financial-year";
 
+/**
+ * The company being worked on.
+ *
+ * The financial year used to be rendered here as a second line under the
+ * name, computed from `new Date()`. It was wrong whenever the books on screen
+ * weren't this year's, and there was no way to argue with it. It now lives
+ * one row below as FinancialYearSelect — same place on the screen, but a
+ * control that says which year is being *looked at*.
+ */
 export function CompanySwitcher({ activeCompanyId }: { activeCompanyId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -39,15 +47,8 @@ export function CompanySwitcher({ activeCompanyId }: { activeCompanyId: string }
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">
             {active ? active.name.charAt(0).toUpperCase() : <Building2 className="size-4" />}
           </span>
-          <span className="flex min-w-0 flex-col items-start gap-px">
-            <span className="w-full truncate text-left text-sm leading-tight font-medium">
-              {active?.name ?? "Select company"}
-            </span>
-            {active && (
-              <span className="text-[11px] leading-tight text-muted-foreground">
-                {getFinancialYearLabel(new Date(), active.financialYearStartMonth)}
-              </span>
-            )}
+          <span className="min-w-0 truncate text-left text-sm leading-tight font-medium">
+            {active?.name ?? "Select company"}
           </span>
         </span>
         <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />

@@ -25,6 +25,8 @@ export interface VoucherLineRowProps {
   autoFocusLedger?: boolean;
   /** Label to show before the user picks — the existing ledger when editing. */
   initialLedgerName?: string;
+  /** The form keeps the picked ledger's role, which the id alone doesn't carry — see F-18. */
+  onLedgerPicked?: (ledger: LedgerSearchResult) => void;
 }
 
 export function VoucherLineRow({
@@ -41,6 +43,7 @@ export function VoucherLineRow({
   onCellKeyDown,
   autoFocusLedger,
   initialLedgerName,
+  onLedgerPicked,
 }: VoucherLineRowProps) {
   const amountField = side === "credit" ? "creditAmount" : "debitAmount";
 
@@ -54,7 +57,10 @@ export function VoucherLineRow({
             companyId={companyId}
             value={field.value}
             displayName={initialLedgerName}
-            onSelect={(ledger: LedgerSearchResult) => field.onChange(ledger.id)}
+            onSelect={(ledger: LedgerSearchResult) => {
+              onLedgerPicked?.(ledger);
+              field.onChange(ledger.id);
+            }}
             sideRule={sideRule}
             triggerRef={registerCell(rowId, "ledger")}
             onKeyDown={(e) => onCellKeyDown(e, rowId, "ledger")}

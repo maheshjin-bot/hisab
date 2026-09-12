@@ -14,12 +14,20 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { parseCsvFile } from "@/lib/csv/parse";
 import { buildImportPreview } from "@/lib/csv/validate";
 import { downloadSampleCsv } from "@/lib/csv/template";
-import type { CommitResult, CsvImportConfig, CsvImportPreview } from "@/lib/csv/types";
+import type {
+  CommitResult,
+  CsvDateFormat,
+  CsvDateFormatHint,
+  CsvImportConfig,
+  CsvImportPreview,
+  RawCsvRow,
+} from "@/lib/csv/types";
 import { useSupabase } from "@/hooks/useSupabase";
 import { recordImportBatch } from "@/lib/supabase/queries/imports";
 
@@ -83,6 +91,26 @@ export function CsvImportModal<TRow, TParsed, TContext = void>({
   // which point the File object is long out of scope.
   const fileNameRef = useRef<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  // Changing the date format re-validates the same file rather than asking
+  // for it again, so the rows have to outlive the parse.
+  const rawRowsRef = useRef<RawCsvRow[]>([]);
+  const [dateFormat, setDateFormat] = useState<CsvDateFormat | null>(null);
+  const [dateHint, setDateHint] = useState<CsvDateFormatHint | null>(null);
+
+  /** The config as the current date-format choice makes it. */
+  function configFor(format: CsvDateFormat | null) {
+    if (!config.dateFormat || !format || format === config.dateFormat.value) return config;
+    return config.dateFormat.withFormat(format);
+  }
+
+  function showPreview(format: CsvDateFormat | null, rows: RawCsvRow[], ctx: TContext) {
+    const active = configFor(format);
+    setDateHint(active.dateFormat?.inspect(rows) ?? null);
+    dispatch({
+      type: "PREVIEW_READY",
+      preview: buildImportPreview(rows, active, ctx) as CsvImportPreview<unknown>,
+    });
+  }
 
   async function handleFileSelected(file: File) {
     fileNameRef.current = file.name;
@@ -91,11 +119,21 @@ export function CsvImportModal<TRow, TParsed, TContext = void>({
       const { rows } = await parseCsvFile(file);
       const ctx = config.prepareContext ? await config.prepareContext() : (undefined as TContext);
       contextRef.current = ctx;
-      const preview = buildImportPreview(rows, config, ctx);
-      dispatch({ type: "PREVIEW_READY", preview: preview as CsvImportPreview<unknown> });
+      rawRowsRef.current = rows;
+      // A file whose dates settle their own order overrides the default —
+      // there is nothing for the user to decide in that case.
+      const hint = config.dateFormat?.inspect(rows);
+      const format = hint?.locked ? hint.format : (config.dateFormat?.value ?? null);
+      setDateFormat(format);
+      showPreview(format, rows, ctx);
     } catch (err) {
       dispatch({ type: "FAILED", message: err instanceof Error ? err.message : "Could not read that file" });
     }
+  }
+
+  function handleDateFormatChange(next: CsvDateFormat) {
+    setDateFormat(next);
+    showPreview(next, rawRowsRef.current, contextRef.current as TContext);
   }
 
   async function handleCommit(preview: CsvImportPreview<unknown>) {
@@ -103,7 +141,7 @@ export function CsvImportModal<TRow, TParsed, TContext = void>({
     dispatch({ type: "COMMIT_START", total: validRows.length });
     try {
       const ctx = contextRef.current ?? (config.prepareContext ? await config.prepareContext() : (undefined as TContext));
-      const result = await config.onCommit(validRows, ctx, (done) => dispatch({ type: "COMMIT_PROGRESS", done }));
+      const result = await configFor(dateFormat).onCommit(validRows, ctx, (done) => dispatch({ type: "COMMIT_PROGRESS", done }));
       dispatch({ type: "COMMIT_DONE", result });
       await recordImportBatch(supabase, companyId, {
         importType: config.importType,
@@ -128,7 +166,10 @@ export function CsvImportModal<TRow, TParsed, TContext = void>({
   }
 
   function handleClose(next: boolean) {
-    if (!next) dispatch({ type: "RESET" });
+    if (!next) {
+      dispatch({ type: "RESET" });
+      setDateHint(null);
+    }
     onOpenChange(next);
   }
 
@@ -188,6 +229,9 @@ export function CsvImportModal<TRow, TParsed, TContext = void>({
         {state.step === "preview" && (
           <PreviewPanel
             preview={state.preview}
+            dateFormat={dateFormat}
+            dateHint={dateHint}
+            onDateFormatChange={handleDateFormatChange}
             onCancel={() => dispatch({ type: "RESET" })}
             onConfirm={() => handleCommit(state.preview)}
           />
@@ -246,10 +290,16 @@ export function CsvImportModal<TRow, TParsed, TContext = void>({
 
 function PreviewPanel({
   preview,
+  dateFormat,
+  dateHint,
+  onDateFormatChange,
   onCancel,
   onConfirm,
 }: {
   preview: CsvImportPreview<unknown>;
+  dateFormat: CsvDateFormat | null;
+  dateHint: CsvDateFormatHint | null;
+  onDateFormatChange: (format: CsvDateFormat) => void;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -258,6 +308,32 @@ function PreviewPanel({
 
   return (
     <div className="space-y-3">
+      {dateHint && dateFormat && (
+        // Both readings of 04/01/2026 are valid dates, so nothing downstream
+        // can catch the wrong one — the worked example is the only place the
+        // user gets to notice it.
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-2 text-xs">
+          <span className="text-muted-foreground">Dates are</span>
+          <Select
+            value={dateFormat}
+            disabled={dateHint.locked}
+            onValueChange={(v) => v && onDateFormatChange(v as CsvDateFormat)}
+          >
+            <SelectTrigger size="sm" className="w-32 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="dd/mm/yyyy">dd/mm/yyyy</SelectItem>
+              <SelectItem value="mm/dd/yyyy">mm/dd/yyyy</SelectItem>
+            </SelectContent>
+          </Select>
+          {dateHint.example && <span className="font-medium">{dateHint.example}</span>}
+          <span className="text-muted-foreground">
+            {dateHint.locked ? "— this file's own dates settle the order." : "— change this if that's not the date you meant."}
+          </span>
+        </div>
+      )}
+
       <div className="flex gap-3 text-sm">
         <span>{preview.totalRows} rows</span>
         <Badge variant="secondary" className="bg-success/10 text-success">

@@ -20,10 +20,13 @@ export interface ShortcutDescriptor {
 export const GLOBAL_SHORTCUTS: ShortcutDescriptor[] = [
   ...VOUCHER_TYPE_ORDER.map((type) => ({
     keys: VOUCHER_TYPE_CONFIG[type].shortcutKey,
-    description: `New ${VOUCHER_TYPE_CONFIG[type].label} voucher`,
+    description: `New ${VOUCHER_TYPE_CONFIG[type].label}`,
   })),
   { keys: "ctrl+k", description: "Command palette / switch company" },
   { keys: "alt+/", description: "Command palette" },
+  // Bound by the sidebar's FinancialYearSelect, not the palette — alt+1..6
+  // are the voucher types, so the year takes a mnemonic letter instead.
+  { keys: "alt+y", description: "Change financial year" },
   { keys: "?", description: "Show keyboard shortcuts" },
   { keys: "ctrl+enter", description: "Save voucher" },
   { keys: "alt+backspace", description: "Remove current line (in a voucher grid)" },

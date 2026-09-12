@@ -81,6 +81,7 @@ export type Database = {
           changed_by: string | null
           company_id: string
           id: string
+          is_revert: boolean
           new_data: Json | null
           old_data: Json | null
           record_id: string
@@ -92,6 +93,7 @@ export type Database = {
           changed_by?: string | null
           company_id: string
           id?: string
+          is_revert?: boolean
           new_data?: Json | null
           old_data?: Json | null
           record_id: string
@@ -103,6 +105,7 @@ export type Database = {
           changed_by?: string | null
           company_id?: string
           id?: string
+          is_revert?: boolean
           new_data?: Json | null
           old_data?: Json | null
           record_id?: string
@@ -118,42 +121,468 @@ export type Database = {
           },
         ]
       }
+      bank_narration_rules: {
+        Row: {
+          bank_ledger_id: string | null
+          company_id: string
+          contra_ledger_id: string
+          created_at: string
+          created_by: string | null
+          direction: string
+          hit_count: number
+          id: string
+          is_manual: boolean
+          last_used_at: string
+          pattern: string
+          updated_at: string
+        }
+        Insert: {
+          bank_ledger_id?: string | null
+          company_id: string
+          contra_ledger_id: string
+          created_at?: string
+          created_by?: string | null
+          direction: string
+          hit_count?: number
+          id?: string
+          is_manual?: boolean
+          last_used_at?: string
+          pattern: string
+          updated_at?: string
+        }
+        Update: {
+          bank_ledger_id?: string | null
+          company_id?: string
+          contra_ledger_id?: string
+          created_at?: string
+          created_by?: string | null
+          direction?: string
+          hit_count?: number
+          id?: string
+          is_manual?: boolean
+          last_used_at?: string
+          pattern?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_narration_rules_bank_ledger_id_company_id_fkey"
+            columns: ["bank_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "bank_narration_rules_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_narration_rules_contra_ledger_id_company_id_fkey"
+            columns: ["contra_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
+      bank_statement_imports: {
+        Row: {
+          bank_ledger_id: string
+          closing_balance: number | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          duplicate_count: number
+          file_name: string | null
+          id: string
+          line_count: number
+          period_end: string | null
+          period_start: string | null
+        }
+        Insert: {
+          bank_ledger_id: string
+          closing_balance?: number | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          duplicate_count?: number
+          file_name?: string | null
+          id?: string
+          line_count?: number
+          period_end?: string | null
+          period_start?: string | null
+        }
+        Update: {
+          bank_ledger_id?: string
+          closing_balance?: number | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          duplicate_count?: number
+          file_name?: string | null
+          id?: string
+          line_count?: number
+          period_end?: string | null
+          period_start?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_statement_imports_bank_ledger_id_company_id_fkey"
+            columns: ["bank_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "bank_statement_imports_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bank_statement_lines: {
+        Row: {
+          bank_ledger_id: string
+          company_id: string
+          created_at: string
+          deposit_amount: number
+          fingerprint: string
+          id: string
+          import_id: string
+          line_number: number
+          matched_voucher_id: string | null
+          narration: string
+          posted_voucher_id: string | null
+          reference: string | null
+          running_balance: number | null
+          status: string
+          txn_date: string
+          updated_at: string
+          value_date: string | null
+          withdrawal_amount: number
+        }
+        Insert: {
+          bank_ledger_id: string
+          company_id: string
+          created_at?: string
+          deposit_amount?: number
+          fingerprint: string
+          id?: string
+          import_id: string
+          line_number: number
+          matched_voucher_id?: string | null
+          narration?: string
+          posted_voucher_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          status?: string
+          txn_date: string
+          updated_at?: string
+          value_date?: string | null
+          withdrawal_amount?: number
+        }
+        Update: {
+          bank_ledger_id?: string
+          company_id?: string
+          created_at?: string
+          deposit_amount?: number
+          fingerprint?: string
+          id?: string
+          import_id?: string
+          line_number?: number
+          matched_voucher_id?: string | null
+          narration?: string
+          posted_voucher_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          status?: string
+          txn_date?: string
+          updated_at?: string
+          value_date?: string | null
+          withdrawal_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_statement_lines_bank_ledger_id_company_id_fkey"
+            columns: ["bank_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_import_id_company_id_fkey"
+            columns: ["import_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "bank_statement_imports"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_matched_voucher_id_fkey"
+            columns: ["matched_voucher_id"]
+            isOneToOne: false
+            referencedRelation: "vouchers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_posted_voucher_id_fkey"
+            columns: ["posted_voucher_id"]
+            isOneToOne: false
+            referencedRelation: "vouchers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bank_statement_profiles: {
+        Row: {
+          amount_column: string | null
+          amount_mode: string
+          balance_column: string | null
+          bank_ledger_id: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          date_column: string
+          date_format: string
+          deposit_column: string | null
+          id: string
+          label: string
+          narration_columns: string[]
+          negative_is_withdrawal: boolean
+          reference_column: string | null
+          skip_rows: number
+          type_column: string | null
+          updated_at: string
+          value_date_column: string | null
+          withdrawal_column: string | null
+        }
+        Insert: {
+          amount_column?: string | null
+          amount_mode: string
+          balance_column?: string | null
+          bank_ledger_id: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          date_column: string
+          date_format: string
+          deposit_column?: string | null
+          id?: string
+          label: string
+          narration_columns?: string[]
+          negative_is_withdrawal?: boolean
+          reference_column?: string | null
+          skip_rows?: number
+          type_column?: string | null
+          updated_at?: string
+          value_date_column?: string | null
+          withdrawal_column?: string | null
+        }
+        Update: {
+          amount_column?: string | null
+          amount_mode?: string
+          balance_column?: string | null
+          bank_ledger_id?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          date_column?: string
+          date_format?: string
+          deposit_column?: string | null
+          id?: string
+          label?: string
+          narration_columns?: string[]
+          negative_is_withdrawal?: boolean
+          reference_column?: string | null
+          skip_rows?: number
+          type_column?: string | null
+          updated_at?: string
+          value_date_column?: string | null
+          withdrawal_column?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_statement_profiles_bank_ledger_id_company_id_fkey"
+            columns: ["bank_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "bank_statement_profiles_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      // Hand-added, not generated. This file comes from production, which does
+      // not yet have migration 0030/0031; regenerating before both are
+      // applied would delete this entry. Kept in the generator's own
+      // alphabetical order. storage_path moved out to bill_capture_pages
+      // (0031) — a draft holds any number of pages now, not one photo.
+      bill_capture_drafts: {
+        Row: {
+          company_id: string
+          confirmed_voucher_id: string | null
+          created_at: string
+          created_by: string | null
+          extracted_at: string | null
+          extracted_json: Json | null
+          id: string
+          note: string | null
+          rejected_at: string | null
+          rejected_by: string | null
+          rejected_reason: string | null
+          status: string
+          updated_at: string
+          vendor_hint: string | null
+        }
+        Insert: {
+          company_id: string
+          confirmed_voucher_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          extracted_at?: string | null
+          extracted_json?: Json | null
+          id?: string
+          note?: string | null
+          rejected_at?: string | null
+          rejected_by?: string | null
+          rejected_reason?: string | null
+          status?: string
+          updated_at?: string
+          vendor_hint?: string | null
+        }
+        Update: {
+          company_id?: string
+          confirmed_voucher_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          extracted_at?: string | null
+          extracted_json?: Json | null
+          id?: string
+          note?: string | null
+          rejected_at?: string | null
+          rejected_by?: string | null
+          rejected_reason?: string | null
+          status?: string
+          updated_at?: string
+          vendor_hint?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bill_capture_drafts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bill_capture_drafts_confirmed_voucher_id_company_id_fkey"
+            columns: ["confirmed_voucher_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "vouchers"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
+      // Hand-added, not generated — see the note above bill_capture_drafts.
+      bill_capture_pages: {
+        Row: {
+          company_id: string
+          created_at: string
+          draft_id: string
+          id: string
+          page_no: number
+          storage_path: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          draft_id: string
+          id?: string
+          page_no: number
+          storage_path: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          draft_id?: string
+          id?: string
+          page_no?: number
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bill_capture_pages_draft_id_company_id_fkey"
+            columns: ["draft_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "bill_capture_drafts"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
       companies: {
         Row: {
+          address: string | null
           base_currency: string
           book_beginning_date: string
           created_at: string
           created_by: string | null
+          email: string | null
           financial_year_start_month: number
           id: string
           is_active: boolean
           lock_date: string | null
           name: string
+          phone: string | null
           updated_at: string
+          uses_financial_years: boolean
         }
         Insert: {
+          address?: string | null
           base_currency?: string
           book_beginning_date: string
           created_at?: string
           created_by?: string | null
+          email?: string | null
           financial_year_start_month?: number
           id?: string
           is_active?: boolean
           lock_date?: string | null
           name: string
+          phone?: string | null
           updated_at?: string
+          uses_financial_years?: boolean
         }
         Update: {
+          address?: string | null
           base_currency?: string
           book_beginning_date?: string
           created_at?: string
           created_by?: string | null
+          email?: string | null
           financial_year_start_month?: number
           id?: string
           is_active?: boolean
           lock_date?: string | null
           name?: string
+          phone?: string | null
           updated_at?: string
+          uses_financial_years?: boolean
         }
         Relationships: []
       }
@@ -333,6 +762,69 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "companies"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_lines: {
+        Row: {
+          company_id: string
+          created_at: string
+          description: string
+          discount_amount: number
+          id: string
+          line_amount: number | null
+          line_order: number
+          quantity: number
+          rate: number
+          revenue_ledger_id: string
+          unit: string | null
+          updated_at: string
+          voucher_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          description: string
+          discount_amount?: number
+          id?: string
+          line_amount?: number | null
+          line_order?: number
+          quantity?: number
+          rate?: number
+          revenue_ledger_id: string
+          unit?: string | null
+          updated_at?: string
+          voucher_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          description?: string
+          discount_amount?: number
+          id?: string
+          line_amount?: number | null
+          line_order?: number
+          quantity?: number
+          rate?: number
+          revenue_ledger_id?: string
+          unit?: string | null
+          updated_at?: string
+          voucher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_lines_revenue_ledger_id_company_id_fkey"
+            columns: ["revenue_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "invoice_lines_voucher_id_company_id_fkey"
+            columns: ["voucher_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "vouchers"
+            referencedColumns: ["id", "company_id"]
           },
         ]
       }
@@ -524,6 +1016,7 @@ export type Database = {
           id: string
           is_deleted: boolean
           narration: string | null
+          party_ledger_id: string | null
           reference_date: string | null
           reference_number: string | null
           sequence_number: number
@@ -542,6 +1035,7 @@ export type Database = {
           id?: string
           is_deleted?: boolean
           narration?: string | null
+          party_ledger_id?: string | null
           reference_date?: string | null
           reference_number?: string | null
           sequence_number: number
@@ -560,6 +1054,7 @@ export type Database = {
           id?: string
           is_deleted?: boolean
           narration?: string | null
+          party_ledger_id?: string | null
           reference_date?: string | null
           reference_number?: string | null
           sequence_number?: number
@@ -578,6 +1073,13 @@ export type Database = {
             referencedRelation: "companies"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "vouchers_party_ledger_id_company_id_fkey"
+            columns: ["party_ledger_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "ledgers"
+            referencedColumns: ["id", "company_id"]
+          },
         ]
       }
     }
@@ -592,12 +1094,14 @@ export type Database = {
           p_book_beginning_date: string
           p_financial_year_start_month?: number
           p_name: string
+          p_uses_financial_years?: boolean
         }
         Returns: string
       }
       create_voucher: {
         Args: {
           p_company_id: string
+          p_invoice?: Json
           p_lines: Json
           p_narration: string
           p_reference_date: string
@@ -615,9 +1119,26 @@ export type Database = {
           voucher_id: string
         }[]
       }
-      export_company_backup: {
-        Args: { p_company_id: string }
-        Returns: Json
+      export_company_backup: { Args: { p_company_id: string }; Returns: Json }
+      // Hand-added, not generated. This file comes from production, which does
+      // not yet have migration 0024; regenerating before it is applied would
+      // delete this entry. Kept in the generator's own alphabetical order and
+      // shape so a later regeneration produces no diff here.
+      find_duplicate_bill: {
+        Args: {
+          p_company_id: string
+          p_exclude_voucher_id?: string
+          p_party_ledger_id: string
+          p_reference_number: string
+          p_voucher_date: string
+        }
+        Returns: {
+          reference_number: string
+          total_amount: number
+          voucher_date: string
+          voucher_id: string
+          voucher_number: string
+        }[]
       }
       get_balance_sheet: {
         Args: { p_as_of_date: string; p_company_id: string }
@@ -628,6 +1149,22 @@ export type Database = {
           ledger_name: string
           nature: string
           side: string
+        }[]
+      }
+      get_bank_match_candidates: {
+        Args: {
+          p_bank_ledger_id: string
+          p_company_id: string
+          p_from_date: string
+          p_to_date: string
+        }
+        Returns: {
+          bank_amount: number
+          narration: string
+          voucher_date: string
+          voucher_id: string
+          voucher_number: string
+          voucher_type: string
         }[]
       }
       get_dashboard_summary: {
@@ -662,6 +1199,8 @@ export type Database = {
           p_to_date: string
         }
         Returns: {
+          counterparty: string
+          counterparty_ledger_id: string
           credit_amount: number
           debit_amount: number
           entry_date: string
@@ -670,6 +1209,30 @@ export type Database = {
           voucher_id: string
           voucher_number: string
           voucher_type: string
+        }[]
+      }
+      // counterparty/counterparty_ledger_id above are hand-added, not
+      // generated, for the same reason as get_outstanding_balances below:
+      // this file comes from production, which does not yet have migration
+      // 0028. Kept in the generator's alphabetical order so a later
+      // regeneration produces no diff here.
+      // Hand-added, not generated. This file comes from production, which does
+      // not yet have migration 0025; regenerating before it is applied would
+      // delete this entry. Kept in the generator's own alphabetical order and
+      // shape so a later regeneration produces no diff here — including
+      // last_transaction_date as `string`, which is how the generator renders
+      // a nullable date returned by a function. It really can be null (a party
+      // whose only balance is an opening figure), and
+      // lib/supabase/queries/reports.ts narrows it back.
+      get_outstanding_balances: {
+        Args: { p_company_id: string }
+        Returns: {
+          amount: number
+          direction: string
+          last_transaction_date: string
+          ledger_id: string
+          ledger_name: string
+          party_kind: string
         }[]
       }
       get_profit_and_loss: {
@@ -694,6 +1257,14 @@ export type Database = {
           nature: string
         }[]
       }
+      post_bank_statement_lines: {
+        Args: { p_company_id: string; p_lines: Json }
+        Returns: {
+          error_message: string
+          line_id: string
+          voucher_id: string
+        }[]
+      }
       preview_revert_since: {
         Args: { p_company_id: string; p_since: string }
         Returns: {
@@ -703,6 +1274,13 @@ export type Database = {
           latest: string
           table_name: string
         }[]
+      }
+      // Hand-added, not generated. This file comes from production, which does
+      // not yet have migration 0029; regenerating before it is applied would
+      // delete this entry. Kept in the generator's own alphabetical order.
+      merge_ledgers: {
+        Args: { p_company_id: string; p_source_ledger_id: string; p_target_ledger_id: string }
+        Returns: undefined
       }
       restore_company_backup: {
         Args: { p_mode?: string; p_payload: Json; p_target_company_id?: string }
@@ -714,6 +1292,7 @@ export type Database = {
       }
       update_voucher: {
         Args: {
+          p_invoice?: Json
           p_lines: Json
           p_narration: string
           p_reference_date: string

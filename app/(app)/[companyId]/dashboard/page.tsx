@@ -9,14 +9,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SummaryTile } from "@/components/dashboard/SummaryTile";
 import { QuickActionButton } from "@/components/dashboard/QuickActionButton";
 import { useCashFlowSummaryQuery } from "@/hooks/useDashboardQuery";
+import { useFinancialYear } from "@/hooks/useFinancialYear";
 import { useVouchersQuery } from "@/hooks/useVouchersQuery";
 import { formatCurrency } from "@/lib/utils/currency";
+import { parseIsoLocalDate } from "@/lib/utils/financial-year";
+import { formatIsoDate } from "@/lib/utils/statement-period";
 import { VOUCHER_TYPE_CONFIG } from "@/lib/voucher/voucher-type-config";
 import { cn } from "@/lib/utils";
-
-function isoToday() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 /** "Today" / "Yesterday" / "16 Aug 2026" — voucher_date is a plain calendar date, never a time-of-day, so this never fabricates a clock time. */
 function formatActivityDate(isoDate: string) {
@@ -40,17 +39,40 @@ const FLOW_AMOUNT_CLASS: Record<"in" | "out" | "neutral", string> = {
 
 export default function DashboardPage({ params }: PageProps<"/[companyId]/dashboard">) {
   const { companyId } = use(params);
-  const today = isoToday();
-  const monthStartLabel = format(startOfMonth(new Date()), "d MMM");
 
-  const { data: cashFlow, isLoading: loadingCashFlow } = useCashFlowSummaryQuery(companyId, today);
+  /*
+   * The dashboard is drawn as of the selected financial year — the year's
+   * closing date, or today while that year is still running.
+   *
+   * Today was hardcoded here, which is why a company whose books stop in
+   * March showed ₹0.00 inflows in September: literally true of this month,
+   * and no use to anyone. Pinning a closed year to its last day instead
+   * answers the question actually being asked — what the position was when
+   * the year closed.
+   *
+   * The tiles then mean different things and must say so. get_dashboard_summary
+   * measures inflow/outflow from the first of the as-of date's month, so with
+   * a closed year selected these are the closing month's figures, not "this
+   * month's" — and the balances are the year's closing balances rather than
+   * live ones.
+   */
+  const { selected, asOfDate, isCurrent } = useFinancialYear(companyId);
+  const monthStart = startOfMonth(parseIsoLocalDate(asOfDate));
+  const monthStartLabel = format(monthStart, "d MMM");
+  const flowMonthLabel = format(monthStart, "MMM yyyy");
+
+  const { data: cashFlow, isLoading: loadingCashFlow } = useCashFlowSummaryQuery(companyId, asOfDate);
   const { data: recentVouchers, isLoading: loadingVouchers } = useVouchersQuery(companyId, { page: 0, pageSize: 10 });
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <div>
         <h1 className="text-lg font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">{format(new Date(), "EEEE, d MMMM yyyy")}</p>
+        <p className="text-sm text-muted-foreground">
+          {isCurrent
+            ? format(new Date(), "EEEE, d MMMM yyyy")
+            : `${selected.label} — closed year, as of ${formatIsoDate(selected.end)}`}
+        </p>
       </div>
 
       {loadingCashFlow ? (
@@ -62,32 +84,49 @@ export default function DashboardPage({ params }: PageProps<"/[companyId]/dashbo
       ) : (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <SummaryTile
-            label="Cash-in-Hand"
+            label={isCurrent ? "Cash-in-Hand" : "Closing Cash-in-Hand"}
             value={formatCurrency(cashFlow?.cashInHand ?? 0)}
             icon={Wallet}
             trend={cashFlow ? { amount: cashFlow.cashInHandChange, caption: `since ${monthStartLabel}` } : undefined}
           />
           <SummaryTile
-            label="Bank Balance"
+            label={isCurrent ? "Bank Balance" : "Closing Bank Balance"}
             value={formatCurrency(cashFlow?.bankBalance ?? 0)}
             icon={Landmark}
             trend={cashFlow ? { amount: cashFlow.bankBalanceChange, caption: `since ${monthStartLabel}` } : undefined}
           />
-          <SummaryTile label="Month's Inflows" value={formatCurrency(cashFlow?.monthInflow ?? 0)} tone="success" icon={ArrowDownToLine} />
-          <SummaryTile label="Month's Outflows" value={formatCurrency(cashFlow?.monthOutflow ?? 0)} tone="destructive" icon={ArrowUpFromLine} />
+          <SummaryTile
+            label={isCurrent ? "Month's Inflows" : `Inflows, ${flowMonthLabel}`}
+            value={formatCurrency(cashFlow?.monthInflow ?? 0)}
+            tone="success"
+            icon={ArrowDownToLine}
+          />
+          <SummaryTile
+            label={isCurrent ? "Month's Outflows" : `Outflows, ${flowMonthLabel}`}
+            value={formatCurrency(cashFlow?.monthOutflow ?? 0)}
+            tone="destructive"
+            icon={ArrowUpFromLine}
+          />
         </div>
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <QuickActionButton href={`/${companyId}/vouchers/new/sales`} icon={ShoppingCart} label="Record Sale" />
-        <QuickActionButton href={`/${companyId}/vouchers/new/purchase`} icon={ShoppingBag} label="Record Purchase" />
+        <QuickActionButton href={`/${companyId}/vouchers/new/sales`} icon={ShoppingCart} label="New Sale Bill" />
+        <QuickActionButton href={`/${companyId}/vouchers/new/purchase`} icon={ShoppingBag} label="New Purchase Bill" />
         <QuickActionButton href={`/${companyId}/ledgers?new=1`} icon={BookText} label="Add Ledger" />
         <QuickActionButton href={`/${companyId}/ledgers?import=1`} icon={UploadCloud} label="CSV Import / Export" />
       </div>
 
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-medium">Recent activity</h2>
+          {/* The books themselves are never filtered by the year selector —
+              this is the last ten vouchers entered, whenever they fall. With a
+              closed year selected that will be entries from outside it, so the
+              heading says so rather than letting them read as the year's. */}
+          <h2 className="text-sm font-medium">
+            Recent activity
+            {!isCurrent && <span className="ml-1.5 font-normal text-muted-foreground">(latest entries, all years)</span>}
+          </h2>
           <Link href={`/${companyId}/vouchers`} className="text-xs text-muted-foreground hover:text-foreground">
             View all
           </Link>

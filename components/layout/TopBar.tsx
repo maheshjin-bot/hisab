@@ -9,6 +9,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -83,7 +84,11 @@ export function TopBar({ companyId, userEmail }: { companyId: string; userEmail:
             </Avatar>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {userEmail && <DropdownMenuLabel className="truncate font-normal text-muted-foreground">{userEmail}</DropdownMenuLabel>}
+            {userEmail && (
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="truncate font-normal text-muted-foreground">{userEmail}</DropdownMenuLabel>
+              </DropdownMenuGroup>
+            )}
             <DropdownMenuSeparator />
             <ThemeMenuItems />
             <DropdownMenuSeparator />

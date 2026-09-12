@@ -5,11 +5,17 @@ import type { Database } from "@/types/database.types";
  * Every table that carries an audit trigger. The first four came with
  * 0007_import_staging_and_audit; account_groups and companies were added in
  * 0014, which closed a gap where chart-of-accounts edits and lock-date
- * changes left no trace at all.
+ * changes left no trace at all; invoice_lines came with 0021.
+ *
+ * This is an allow-list, not a description: the History page's filter is built
+ * from it, and `ListAuditParams.tableName` is typed by it. A table whose
+ * trigger fires but whose name is missing here records its changes and then
+ * offers no way to ask for them — the trail looks complete and isn't.
  */
 export const AUDITED_TABLES = [
   "vouchers",
   "voucher_entries",
+  "invoice_lines",
   "ledgers",
   "account_groups",
   "company_members",

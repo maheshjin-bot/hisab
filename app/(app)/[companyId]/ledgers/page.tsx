@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, DEFAULT_PAGE_SIZE } from "@/components/data-table/DataTable";
 import { buildLedgerColumns } from "@/components/ledgers/ledger-columns";
 import { LedgerFormDialog } from "@/components/ledgers/LedgerFormDialog";
+import { MergeLedgerDialog } from "@/components/ledgers/MergeLedgerDialog";
 import { CsvImportModal } from "@/components/csv/CsvImportModal";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -19,6 +20,7 @@ import { useCompanyRole } from "@/hooks/useCompaniesQuery";
 import { useSupabase } from "@/hooks/useSupabase";
 import { buildLedgerCsvImportConfig } from "@/lib/ledgers/ledger-csv-config";
 import { searchLedgers, type Ledger } from "@/lib/supabase/queries/ledgers";
+import { itemsWithPending, selectItems } from "@/lib/utils/select-items";
 import { toUserMessage } from "@/lib/errors";
 
 export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers">) {
@@ -39,6 +41,7 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
   const [importOpen, setImportOpen] = useState(() => searchParams.get("import") === "1");
   const [editing, setEditing] = useState<Ledger | null>(null);
   const [togglingActive, setTogglingActive] = useState<Ledger | null>(null);
+  const [merging, setMerging] = useState<Ledger | null>(null);
 
   const isAdmin = useCompanyRole(companyId) === "admin";
   const updateLedger = useUpdateLedgerMutation(companyId);
@@ -53,14 +56,34 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
     sortDir: sorting[0]?.desc ? "desc" : "asc",
   });
 
+  // The group filter's trigger reads its label from here rather than from the
+  // option that was clicked, so this has to cover every value the filter can
+  // hold — including a group picked before the list came back.
+  const groupFilterItems = useMemo(
+    () =>
+      itemsWithPending(
+        selectItems(groups, (g) => [g.id, g.name], { all: "All groups" }),
+        groupId,
+        "All groups"
+      ),
+    [groups, groupId]
+  );
+
   const importConfig = useMemo(
     () => buildLedgerCsvImportConfig(supabase, companyId),
     [supabase, companyId]
   );
 
   const columns = useMemo(
-    () => buildLedgerColumns({ onEdit: setEditing, onToggleActive: setTogglingActive }),
-    []
+    () =>
+      buildLedgerColumns({
+        companyId,
+        isAdmin,
+        onEdit: setEditing,
+        onToggleActive: setTogglingActive,
+        onMerge: setMerging,
+      }),
+    [companyId, isAdmin]
   );
 
   return (
@@ -120,6 +143,10 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
             </div>
             <Select
               value={groupId}
+              // Without this the trigger shows the group's id — see the note
+              // on Select. "all" needs to be in the map too, or the unfiltered
+              // state reads as the literal word "all".
+              items={groupFilterItems}
               onValueChange={(v) => {
                 setGroupId(v ?? "all");
                 setPagination((p) => ({ ...p, pageIndex: 0 }));
@@ -183,6 +210,14 @@ export default function LedgersPage({ params }: PageProps<"/[companyId]/ledgers"
           }
         }}
       />
+      {merging && (
+        <MergeLedgerDialog
+          open={!!merging}
+          onOpenChange={(open) => !open && setMerging(null)}
+          companyId={companyId}
+          source={merging}
+        />
+      )}
       <CsvImportModal
         open={importOpen}
         companyId={companyId}

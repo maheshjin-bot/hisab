@@ -1,5 +1,5 @@
 /*
- * Print styling for the five reports.
+ * Print styling for the five reports and the invoice.
  *
  * A client is far more likely to see a printed Balance Sheet than the app, so
  * what comes out of the printer has to read as a financial statement rather
@@ -175,5 +175,106 @@
     margin: 0;
     font-size: 9.5pt;
     font-weight: 600;
+  }
+
+  /* ---- invoice ---------------------------------------------------------- */
+
+  /* The same @media print block, not a second printing mechanism: the invoice
+     is one more document that drops the app chrome and prints black on white.
+     What it needs on top of the statement rules is a masthead that reads as a
+     letterhead rather than a centred report title, and the discipline that the
+     total, the words and the signature block are not separated across a page
+     break from each other. */
+  .invoice-sheet {
+    padding: 0 !important;
+  }
+
+  /* On screen the line table can scroll sideways inside the document. A
+     scroller on paper just clips, and the @page margin is doing the width
+     management anyway. */
+  .invoice-lines-scroll {
+    overflow: visible !important;
+  }
+
+  .invoice-masthead {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12mm;
+    margin-bottom: 8pt;
+    padding-bottom: 6pt;
+    border-bottom: 1pt solid #000 !important;
+  }
+
+  .invoice-company-name {
+    margin: 0;
+    font-family: var(--font-display), "Iowan Old Style", Charter, Georgia, serif;
+    font-size: 16pt;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .invoice-company-contact {
+    margin: 1pt 0 0;
+    font-size: 9pt;
+    white-space: pre-line;
+  }
+
+  .invoice-title {
+    margin: 0;
+    font-size: 9pt;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .invoice-number {
+    margin: 1pt 0 0;
+    font-size: 13pt;
+    font-weight: 600;
+  }
+
+  .invoice-date {
+    margin: 1pt 0 0;
+    font-size: 9.5pt;
+  }
+
+  .invoice-parties {
+    display: flex;
+    justify-content: space-between;
+    gap: 12mm;
+    margin-bottom: 8pt;
+    font-size: 9.5pt;
+  }
+
+  .invoice-party-label {
+    font-size: 8pt;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* A total split from the amount it is written out as would let the two be
+     read from different pages, which is exactly what writing it twice guards
+     against. */
+  .invoice-words,
+  .invoice-narration,
+  .invoice-signature {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .invoice-words {
+    margin-top: 6pt;
+    font-size: 9.5pt;
+  }
+
+  .invoice-narration {
+    margin-top: 4pt;
+    font-size: 9.5pt;
+  }
+
+  .invoice-signature {
+    margin-top: 18pt;
+    text-align: right;
+    font-size: 9.5pt;
   }
 }

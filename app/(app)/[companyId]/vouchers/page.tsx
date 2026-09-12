@@ -2,8 +2,9 @@
 
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Upload } from "lucide-react";
+import { Plus, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, DEFAULT_PAGE_SIZE } from "@/components/data-table/DataTable";
 import { buildVoucherColumns } from "@/components/vouchers/voucher-columns";
@@ -16,14 +17,26 @@ import { listVouchers, type VoucherListItem, type VoucherType } from "@/lib/supa
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toUserMessage } from "@/lib/errors";
 import { VOUCHER_TYPE_CONFIG, VOUCHER_TYPE_ORDER } from "@/lib/voucher/voucher-type-config";
+import { selectItems } from "@/lib/utils/select-items";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+
+// The filter's values are the database's own words — `sales`, `receipt` —
+// and the trigger reads its label from this map, not from the option that was
+// clicked. Without it the toolbar says "sales" where every other surface in
+// the app says "Sale Bill".
+const VOUCHER_TYPE_ITEMS = selectItems(
+  VOUCHER_TYPE_ORDER,
+  (type) => [type, VOUCHER_TYPE_CONFIG[type].label],
+  { all: "All types" }
+);
 
 export default function VouchersPage({ params }: PageProps<"/[companyId]/vouchers">) {
   const { companyId } = use(params);
   const supabase = useSupabase();
   const queryClient = useQueryClient();
 
+  const [search, setSearch] = useState("");
   const [voucherType, setVoucherType] = useState<string>("all");
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: DEFAULT_PAGE_SIZE });
   const [sorting, setSorting] = useState<{ id: string; desc: boolean }[]>([]);
@@ -33,6 +46,7 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
   const deleteVoucher = useDeleteVoucherMutation(companyId);
 
   const { data, isLoading, isFetching } = useVouchersQuery(companyId, {
+    q: search || undefined,
     voucherType: voucherType === "all" ? undefined : (voucherType as VoucherType),
     page: pagination.pageIndex,
     pageSize: pagination.pageSize,
@@ -46,7 +60,10 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Vouchers</h1>
-          <p className="text-sm text-muted-foreground">Every payment, receipt, sale, purchase, contra and journal entry.</p>
+          <p className="text-sm text-muted-foreground">
+            Every entry you have recorded — money in, money out, sale bills, purchase bills, transfers and
+            adjustments.
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
@@ -81,25 +98,40 @@ export default function VouchersPage({ params }: PageProps<"/[companyId]/voucher
         isLoading={isLoading || isFetching}
         emptyState="No vouchers yet."
         toolbar={
-          <Select
-            value={voucherType}
-            onValueChange={(v) => {
-              setVoucherType(v ?? "all");
-              setPagination((p) => ({ ...p, pageIndex: 0 }));
-            }}
-          >
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="All types" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              {VOUCHER_TYPE_ORDER.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {VOUCHER_TYPE_CONFIG[type].label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2">
+            <div className="relative max-w-xs flex-1">
+              <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search vouchers…"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPagination((p) => ({ ...p, pageIndex: 0 }));
+                }}
+                className="pl-8"
+              />
+            </div>
+            <Select
+              value={voucherType}
+              items={VOUCHER_TYPE_ITEMS}
+              onValueChange={(v) => {
+                setVoucherType(v ?? "all");
+                setPagination((p) => ({ ...p, pageIndex: 0 }));
+              }}
+            >
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="All types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {VOUCHER_TYPE_ORDER.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {VOUCHER_TYPE_CONFIG[type].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         }
       />
 
