@@ -3,9 +3,9 @@
 import { Fragment, use } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CsvExportButton } from "@/components/csv/CsvExportButton";
+import { DateFieldSelects } from "@/components/reports/DateFieldSelects";
 import { PrintButton } from "@/components/reports/PrintButton";
 import { StatementFooter, StatementHeader } from "@/components/reports/StatementHeader";
 import { useBalanceSheetQuery } from "@/hooks/useReportsQueries";
@@ -94,7 +94,7 @@ export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/rep
   const supabase = useSupabase();
   // Opens on the selected financial year's closing date — today only while
   // that year is still running. The field below still takes any date.
-  const { asOfDate, setAsOfDate } = useReportAsOfDate(companyId);
+  const { asOfDate, setAsOfDate, financialYear } = useReportAsOfDate(companyId);
   const { data, isLoading } = useBalanceSheetQuery(companyId, asOfDate);
 
   const liabilities = (data ?? []).filter((r) => r.side === "liability");
@@ -126,7 +126,7 @@ export default function BalanceSheetPage({ params }: PageProps<"/[companyId]/rep
 
       <div data-print-hide className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">As of</span>
-        <Input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} className="w-40" />
+        <DateFieldSelects value={asOfDate} onChange={setAsOfDate} yearsAround={financialYear.startYear} />
       </div>
 
       {isLoading ? (

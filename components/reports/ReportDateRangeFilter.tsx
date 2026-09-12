@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { DateFieldSelects } from "@/components/reports/DateFieldSelects";
 import { useFinancialYear } from "@/hooks/useFinancialYear";
 import { useReportRangeStore } from "@/stores/useReportRangeStore";
 import {
@@ -159,9 +159,9 @@ export function ReportDateRangeFilter({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Input type="date" value={value.from} onChange={(e) => onChange({ ...value, from: e.target.value })} className="w-40" />
+      <DateFieldSelects value={value.from} onChange={(from) => onChange({ ...value, from })} yearsAround={financialYear.startYear} />
       <span className="text-sm text-muted-foreground">to</span>
-      <Input type="date" value={value.to} onChange={(e) => onChange({ ...value, to: e.target.value })} className="w-40" />
+      <DateFieldSelects value={value.to} onChange={(to) => onChange({ ...value, to })} yearsAround={financialYear.startYear} />
       {datePresets(financialYear).map((preset) => (
         <Button key={preset.label} type="button" variant="ghost" size="sm" onClick={() => onChange(preset.range())}>
           {preset.label}
