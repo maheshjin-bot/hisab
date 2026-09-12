@@ -5,11 +5,12 @@ import { useForm, useFieldArray, useWatch, Controller, type Control } from "reac
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldLabel } from "@/components/ui/field";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { SmartDateInput } from "@/components/common/SmartDateInput";
 import { LedgerCombobox } from "@/components/ledgers/LedgerCombobox";
 import { InvoiceLineRow, INVOICE_GRID_COLUMNS } from "./InvoiceLineRow";
@@ -26,7 +27,7 @@ import {
 } from "@/lib/voucher/invoice-schema";
 import { useKeyboardGrid } from "@/lib/keyboard/useKeyboardGrid";
 import { useShortcutScopeStore } from "@/stores/useShortcutScopeStore";
-import { useCreateVoucherMutation, useUpdateVoucherMutation } from "@/hooks/useVouchersQuery";
+import { useCreateVoucherMutation, useDeleteVoucherMutation, useUpdateVoucherMutation } from "@/hooks/useVouchersQuery";
 import { toUserMessage } from "@/lib/errors";
 import type { LedgerSearchResult } from "@/lib/supabase/queries/ledgers";
 import type { VoucherType, VoucherWithLines } from "@/lib/supabase/queries/vouchers";
@@ -79,7 +80,9 @@ export function InvoiceForm({
   const schema = useMemo(() => buildInvoiceSchema(), []);
   const createVoucher = useCreateVoucherMutation(companyId);
   const updateVoucher = useUpdateVoucherMutation(companyId);
+  const deleteVoucher = useDeleteVoucherMutation(companyId);
   const setShortcutScope = useShortcutScopeStore((s) => s.setScope);
+  const [deleting, setDeleting] = useState(false);
 
   // The same derivation VoucherForm makes, so the invoice grid filters ledgers
   // by exactly the rule the Dr/Cr grid did: income for a sale, expense for a
@@ -432,14 +435,53 @@ export function InvoiceForm({
         <MetaField control={control} name="narration" id="invoice-narration" as="textarea" placeholder={config.narrationPlaceholder} />
       </Field>
 
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={() => router.push(returnTo ?? `/${companyId}/vouchers`)}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Saving…" : `Save ${config.label}`}
-        </Button>
+      <div className="flex justify-between gap-2">
+        {voucherId ? (
+          <Button type="button" variant="outline" className="text-destructive" onClick={() => setDeleting(true)}>
+            <Trash2 data-icon="inline-start" />
+            Delete
+          </Button>
+        ) : (
+          <div />
+        )}
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" onClick={() => router.push(returnTo ?? `/${companyId}/vouchers`)}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Saving…" : `Save ${config.label}`}
+          </Button>
+        </div>
       </div>
+
+      {voucherId && (
+        <ConfirmDialog
+          open={deleting}
+          onOpenChange={setDeleting}
+          title="Delete this voucher?"
+          description={
+            <>
+              <b>{initialValues?.voucherNumber}</b> will stop appearing in the register and in every report. The
+              record is kept, and its number is not reissued.
+            </>
+          }
+          confirmLabel="Delete"
+          destructive
+          onConfirm={async () => {
+            try {
+              await deleteVoucher.mutateAsync(voucherId);
+              toast.success(`Voucher ${initialValues?.voucherNumber} deleted`);
+              router.push(returnTo ?? `/${companyId}/vouchers`);
+            } catch (err) {
+              // Most likely a locked period: the RLS update policy refuses
+              // an accountant's change to a voucher dated on or before the
+              // lock date, and there is no way to know that before trying.
+              toast.error(toUserMessage(err, "Could not delete this voucher — it may fall in a locked period."));
+              throw err;
+            }
+          }}
+        />
+      )}
 
       <UnexpectedLedgerDialog
         open={!!pendingSave}
