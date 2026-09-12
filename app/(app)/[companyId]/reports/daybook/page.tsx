@@ -2,6 +2,7 @@
 
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,6 +19,7 @@ import { formatCurrency } from "@/lib/utils/currency";
 import { VOUCHER_TYPE_CONFIG } from "@/lib/voucher/voucher-type-config";
 import type { VoucherType } from "@/lib/supabase/queries/vouchers";
 import { rangePeriod } from "@/lib/utils/statement-period";
+import { withReturnTo } from "@/lib/utils/return-to";
 import { cn } from "@/lib/utils";
 
 /** A clickable column header with the same asc/desc/unsorted chevron DataTable's own registers use, so every sortable table in the app reads the same way. */
@@ -57,7 +59,8 @@ function SortableHeader({
 export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/daybook">) {
   const { companyId } = use(params);
   const supabase = useSupabase();
-  const { range, setRange, financialYear } = useReportDateRange(companyId);
+  const pathname = usePathname();
+  const { range, setRange, financialYear } = useReportDateRange(companyId, "daybook");
   const { data, isLoading } = useDaybookQuery(companyId, range.from, range.to);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<DaybookSort | null>(null);
@@ -137,7 +140,10 @@ export default function DaybookPage({ params }: PageProps<"/[companyId]/reports/
                   <td className="p-2.5 text-muted-foreground">{row.voucherDate}</td>
                   <td className="p-2.5">{VOUCHER_TYPE_CONFIG[row.voucherType as VoucherType]?.label ?? row.voucherType}</td>
                   <td className="p-2.5">
-                    <Link href={`/${companyId}/vouchers/${row.voucherId}/edit`} className="font-mono text-xs text-primary hover:underline">
+                    <Link
+                      href={withReturnTo(`/${companyId}/vouchers/${row.voucherId}/edit`, pathname)}
+                      className="font-mono text-xs text-primary hover:underline"
+                    >
                       {row.voucherNumber}
                     </Link>
                   </td>

@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 export default function MobileLedgerStatementPage({ params }: PageProps<"/[companyId]/m/ledger/[ledgerId]">) {
   const { companyId, ledgerId } = use(params);
   const supabase = useSupabase();
-  const { range } = useReportDateRange(companyId);
+  const { range } = useReportDateRange(companyId, "mobile-ledger-statement");
 
   const { data: ledger } = useQuery({
     queryKey: queryKeys.ledger(ledgerId),

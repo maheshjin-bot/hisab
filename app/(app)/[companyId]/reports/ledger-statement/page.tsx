@@ -16,6 +16,7 @@ import { getLedgerStatement } from "@/lib/supabase/queries/reports";
 import { getLedgerById } from "@/lib/supabase/queries/ledgers";
 import { queryKeys } from "@/lib/query-keys";
 import { readLedgerIdParam, withLedgerIdParam } from "@/lib/reports/ledger-statement-url";
+import { withReturnTo } from "@/lib/utils/return-to";
 import { ledgerStatementCounterpartyLinkId } from "@/lib/reports/ledger-statement-links";
 import { formatCurrency } from "@/lib/utils/currency";
 import { rangePeriod } from "@/lib/utils/statement-period";
@@ -37,7 +38,11 @@ export default function LedgerStatementPage({ params }: PageProps<"/[companyId]/
   const searchParams = useSearchParams();
   const ledgerIdParam = readLedgerIdParam(searchParams);
 
-  const { range, setRange, financialYear } = useReportDateRange(companyId);
+  const { range, setRange, financialYear } = useReportDateRange(companyId, "ledger-statement");
+  // Where a voucher's edit page should send Cancel and a successful save
+  // back to — this exact ledger, date range, search and sort, not just the
+  // bare report with none of it.
+  const currentUrl = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
 
   // What a selection through the combobox looks like *before* the URL and
   // this hook's own lookup have caught up to it — read only when it still
@@ -140,7 +145,10 @@ export default function LedgerStatementPage({ params }: PageProps<"/[companyId]/
                   <td className="p-2.5 text-muted-foreground">{row.entryDate ?? ""}</td>
                   <td className="p-2.5 text-muted-foreground">
                     {row.voucherId ? (
-                      <Link href={`/${companyId}/vouchers/${row.voucherId}/edit`} className="font-mono text-xs text-primary hover:underline">
+                      <Link
+                        href={withReturnTo(`/${companyId}/vouchers/${row.voucherId}/edit`, currentUrl)}
+                        className="font-mono text-xs text-primary hover:underline"
+                      >
                         {row.voucherNumber}
                       </Link>
                     ) : (

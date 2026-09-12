@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useFinancialYear } from "@/hooks/useFinancialYear";
+import { useReportRangeStore } from "@/stores/useReportRangeStore";
 import {
   financialYearAsOfDate,
   isCurrentFinancialYear,
@@ -67,11 +68,28 @@ export function defaultDateRange(financialYear: FinancialYear, today: Date = new
  * was about to change and was discarded the instant the company loaded. It is
  * tagged `null` instead, meaning "typed before there was a real period", and
  * re-tagged below the moment there is one.
+ *
+ * `reportKey` distinguishes one report's memory from another's (Daybook and
+ * the Ledger Statement are independent habits) and seeds `override` from
+ * useReportRangeStore on mount, so following a voucher link off the page and
+ * back — or just reopening the report tomorrow — restores the range last
+ * chosen here instead of dropping back to the whole financial year. Only the
+ * *initial* value is read from the store; every render after that still
+ * follows the exact same in-memory, year-tagged `override` this hook always
+ * has, and `setRange` is the one place that writes a fresh choice back out to
+ * it. Reading the store during render (rather than in an effect) is safe
+ * here specifically because it only ever happens once, inside useState's own
+ * lazy initializer — not a write, and not a subscription that could fire a
+ * second time mid-render.
  */
-export function useReportDateRange(companyId: string) {
+export function useReportDateRange(companyId: string, reportKey: string) {
   const { selected, financialYearStartMonth, isCurrent, companySettingsKnown } = useFinancialYear(companyId);
+  const storeKey = `${reportKey}:${companyId}`;
+  const setPersistedOverride = useReportRangeStore((s) => s.setOverride);
 
-  const [override, setOverride] = useState<{ startYear: number | null; range: DateRange } | null>(null);
+  const [override, setOverride] = useState<{ startYear: number | null; range: DateRange } | null>(
+    () => useReportRangeStore.getState().overrideByKey[storeKey] ?? null
+  );
 
   // Adjusting state during render, which is what React asks for when state
   // has to follow a value that changed underneath it. An effect would repaint
@@ -86,10 +104,15 @@ export function useReportDateRange(companyId: string) {
       ? override.range
       : defaultDateRange(selected);
 
+  function setRange(next: DateRange) {
+    const tagged = { startYear: companySettingsKnown ? selected.startYear : null, range: next };
+    setOverride(tagged);
+    setPersistedOverride(storeKey, tagged);
+  }
+
   return {
     range,
-    setRange: (next: DateRange) =>
-      setOverride({ startYear: companySettingsKnown ? selected.startYear : null, range: next }),
+    setRange,
     financialYearStartMonth,
     financialYear: selected,
     isCurrentFinancialYear: isCurrent,

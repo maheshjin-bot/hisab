@@ -1,15 +1,21 @@
 "use client";
 
 import { use } from "react";
+import { useSearchParams } from "next/navigation";
 import { VoucherForm } from "@/components/vouchers/VoucherForm";
 import { InvoiceForm } from "@/components/vouchers/InvoiceForm";
 import { VOUCHER_TYPE_CONFIG } from "@/lib/voucher/voucher-type-config";
 import { useVoucherQuery } from "@/hooks/useVouchersQuery";
+import { readReturnTo } from "@/lib/utils/return-to";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function EditVoucherPage({ params }: PageProps<"/[companyId]/vouchers/[voucherId]/edit">) {
   const { companyId, voucherId } = use(params);
   const { data: voucher, isLoading } = useVoucherQuery(voucherId);
+  // Whoever linked here (a report, a ledger's own statement, the register
+  // itself) says where Cancel and a successful save should go — the register
+  // is only the default for a link that never named one.
+  const returnTo = readReturnTo(useSearchParams(), `/${companyId}/vouchers`);
 
   if (isLoading || !voucher) {
     return (
@@ -50,9 +56,16 @@ export default function EditVoucherPage({ params }: PageProps<"/[companyId]/vouc
           voucherType={voucher.voucherType}
           voucherId={voucherId}
           initialValues={voucher}
+          returnTo={returnTo}
         />
       ) : (
-        <VoucherForm companyId={companyId} voucherType={voucher.voucherType} voucherId={voucherId} initialValues={voucher} />
+        <VoucherForm
+          companyId={companyId}
+          voucherType={voucher.voucherType}
+          voucherId={voucherId}
+          initialValues={voucher}
+          returnTo={returnTo}
+        />
       )}
     </div>
   );
